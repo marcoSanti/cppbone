@@ -1,0 +1,241 @@
+// Mirrors modulairy_backbone.py: Louvain communities (python-louvain best_partition), then each node's vitality
+// = |Q - Q without the node|.
+#include <algorithm>
+#include <cmath>
+#include <map>
+#include <random>
+
+#include "netbone/netbone.hpp"
+
+namespace netbone {
+
+namespace {
+
+// Weighted graph on integer nodes with self-loops, the shape Louvain's induced graphs need.
+struct WGraph {
+    std::vector<std::vector<std::pair<int, double>>> adj;  // excludes self-loops
+    std::vector<double> loops;
+
+    double degree(int u) const {  // networkx: self-loop counts twice
+        double d = 2 * loops[u];
+        for (auto& p : adj[u]) d += p.second;
+        return d;
+    }
+    double size() const {
+        double s = 0;
+        for (size_t u = 0; u < adj.size(); ++u) s += degree(u);
+        return s / 2;
+    }
+};
+
+constexpr double MIN_GAIN = 0.0000001;
+
+struct Status {
+    std::vector<int> node2com;
+    std::vector<double> degrees, gdegrees, internals, loops;
+    double total_weight = 0;
+
+    void init(const WGraph& g) {
+        int n = (int)g.adj.size();
+        node2com.resize(n);
+        degrees.resize(n);
+        gdegrees.resize(n);
+        internals.resize(n);
+        loops = g.loops;
+        total_weight = g.size();
+        for (int u = 0; u < n; ++u) {
+            node2com[u] = u;
+            degrees[u] = gdegrees[u] = g.degree(u);
+            internals[u] = loops[u];
+        }
+    }
+
+    double modularity() const {
+        double result = 0;
+        std::vector<bool> seen(degrees.size(), false);
+        for (int c : node2com) {
+            if (seen[c]) continue;
+            seen[c] = true;
+            if (total_weight > 0)
+                result += internals[c] / total_weight - std::pow(degrees[c] / (2. * total_weight), 2);
+        }
+        return result;
+    }
+};
+
+void one_level(const WGraph& g, Status& st, std::mt19937& rng) {
+    int n = (int)g.adj.size();
+    std::vector<int> order(n);
+    for (int i = 0; i < n; ++i) order[i] = i;
+    double new_mod = st.modularity();
+    bool modified = true;
+    while (modified) {
+        double cur_mod = new_mod;
+        modified = false;
+        std::shuffle(order.begin(), order.end(), rng);
+        for (int node : order) {
+            int com_node = st.node2com[node];
+            double degc_totw = st.gdegrees[node] / (st.total_weight * 2.);
+            std::map<int, double> neigh;
+            for (auto [v, w] : g.adj[node]) neigh[st.node2com[v]] += w;
+            double remove_cost = -neigh[com_node] + (st.degrees[com_node] - st.gdegrees[node]) * degc_totw;
+            // __remove
+            st.degrees[com_node] -= st.gdegrees[node];
+            st.internals[com_node] -= neigh[com_node] + st.loops[node];
+            st.node2com[node] = -1;
+
+            std::vector<std::pair<int, double>> items(neigh.begin(), neigh.end());
+            std::shuffle(items.begin(), items.end(), rng);
+            int best_com = com_node;
+            double best_increase = 0;
+            for (auto [com, dnc] : items) {
+                double incr = remove_cost + dnc - st.degrees[com] * degc_totw;
+                if (incr > best_increase) best_increase = incr, best_com = com;
+            }
+            // __insert
+            st.node2com[node] = best_com;
+            st.degrees[best_com] += st.gdegrees[node];
+            st.internals[best_com] += neigh[best_com] + st.loops[node];
+            if (best_com != com_node) modified = true;
+        }
+        new_mod = st.modularity();
+        if (new_mod - cur_mod < MIN_GAIN) break;
+    }
+}
+
+// Renumber communities 0..k-1 by first appearance.
+std::vector<int> renumber(const std::vector<int>& node2com) {
+    std::map<int, int> ids;
+    std::vector<int> out;
+    for (int c : node2com) out.push_back(ids.emplace(c, (int)ids.size()).first->second);
+    return out;
+}
+
+WGraph induced_graph(const std::vector<int>& part, const WGraph& g) {
+    int k = 0;
+    for (int c : part) k = std::max(k, c + 1);
+    std::vector<std::map<int, double>> w(k);
+    WGraph out;
+    out.loops.assign(k, 0);
+    for (size_t u = 0; u < g.adj.size(); ++u) {
+        out.loops[part[u]] += g.loops[u];
+        for (auto [v, wt] : g.adj[u])
+            if ((int)u < v) {
+                int a = part[u], b = part[v];
+                if (a == b)
+                    out.loops[a] += wt;
+                else
+                    w[a][b] += wt, w[b][a] += wt;
+            }
+    }
+    out.adj.resize(k);
+    for (int a = 0; a < k; ++a)
+        for (auto [b, wt] : w[a]) out.adj[a].emplace_back(b, wt);
+    return out;
+}
+
+// python-louvain best_partition: the last level of the dendrogram.
+std::vector<int> best_partition(const WGraph& graph, std::mt19937& rng) {
+    int n = (int)graph.adj.size();
+    std::vector<int> partition(n);
+    for (int i = 0; i < n; ++i) partition[i] = i;
+    if (graph.size() == 0) return partition;
+
+    WGraph current = graph;
+    Status st;
+    st.init(current);
+    one_level(current, st, rng);
+    double mod = st.modularity();
+    auto level = renumber(st.node2com);
+    partition = level;
+    current = induced_graph(level, current);
+    st.init(current);
+    while (true) {
+        one_level(current, st, rng);
+        double new_mod = st.modularity();
+        if (new_mod - mod < MIN_GAIN) break;
+        level = renumber(st.node2com);
+        for (int& c : partition) c = level[c];
+        mod = new_mod;
+        current = induced_graph(level, current);
+        st.init(current);
+    }
+    return partition;
+}
+
+}  // namespace
+
+Backbone modularity_backbone(const Graph& data, std::uint32_t seed) {
+    // shortcut: std::mt19937 instead of numpy's RandomState(123), so the partition can differ from Python's.
+    Graph g = data;
+    int n = g.number_of_nodes();
+    WGraph wg;
+    wg.adj.resize(n);
+    wg.loops.assign(n, 0);
+    auto weight = g.edge_values("weight");
+    for (const auto& e : g.edges()) {
+        double w = weight[e.id];
+        if (e.u == e.v) {
+            wg.loops[e.u] += w;
+        } else {
+            wg.adj[e.u].emplace_back(e.v, w);
+            wg.adj[e.v].emplace_back(e.u, w);
+        }
+    }
+    std::mt19937 rng(seed);
+    auto membership = best_partition(wg, rng);
+    int k = 0;
+    for (int c : membership) k = std::max(k, c + 1);
+
+    // community.modularity(partition, g) with weights
+    double links = wg.size();
+    std::vector<double> inc(k, 0), deg(k, 0);
+    for (int u = 0; u < n; ++u) {
+        deg[membership[u]] += wg.degree(u);
+        inc[membership[u]] += wg.loops[u];
+        for (auto [v, w] : wg.adj[u])
+            if (membership[v] == membership[u]) inc[membership[u]] += w / 2;
+    }
+    double modularity_value = 0;
+    for (int c = 0; c < k; ++c) modularity_value += inc[c] / links - std::pow(deg[c] / (2. * links), 2);
+
+    // Sparse-matrix algebra of the Python version, written per node. As there, m counts edges (weight_key=None)
+    // while the adjacency matrix A is weighted.
+    double m = g.number_of_edges();
+    std::vector<std::map<int, double>> node_deg_by_group(n);  // sparse rows of A * group indicator
+    std::vector<double> diag(n, 0);
+    for (int u = 0; u < n; ++u) {
+        diag[u] = wg.loops[u];
+        node_deg_by_group[u][membership[u]] += wg.loops[u];
+        for (auto [v, w] : wg.adj[u]) node_deg_by_group[u][membership[v]] += w;
+    }
+    double internal_edges = 0;
+    std::vector<double> degrees(n, 0);
+    for (int u = 0; u < n; ++u) {
+        internal_edges += node_deg_by_group[u][membership[u]] / 2;
+        for (auto& kv : node_deg_by_group[u]) degrees[u] += kv.second;
+    }
+    std::vector<double> group_degs(k, 0);
+    for (int u = 0; u < n; ++u) {
+        node_deg_by_group[u][membership[u]] += degrees[u];
+        group_degs[membership[u]] += degrees[u] + diag[u];
+    }
+    double sum_group_degs_sq = 0;
+    for (double x : group_degs) sum_group_degs_sq += x * x;
+
+    for (int u = 0; u < n; ++u) {
+        double internal_deg = node_deg_by_group[u][membership[u]] - degrees[u];
+        double q1_links = (internal_edges - internal_deg) / (m - degrees[u]);
+        double dot = 0, sq = 0;
+        for (auto [c, x] : node_deg_by_group[u]) {
+            dot += x * group_degs[c];
+            sq += x * x;
+        }
+        double expected_impact = sum_group_degs_sq - 2 * dot + sq;
+        double q1_degrees = expected_impact / (4 * std::pow(m - degrees[u], 2));
+        g.node_set(u, "vitality", std::abs(modularity_value - (q1_links - q1_degrees)));
+    }
+    return {g, "Modularity Filter", "vitality", false, {threshold_filter, fraction_filter}, FilterOn::Nodes};
+}
+
+}  // namespace netbone

@@ -1,0 +1,70 @@
+name: Wheels
+
+# Builds wheels for every CPython version cibuildwheel supports that matches requires-python (>=3.10),
+# on Linux (glibc and musl), macOS and Windows, x86 and ARM. Each wheel is installed and tested by cibuildwheel.
+# Publishing a GitHub release uploads the wheels and the sdist to PyPI.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  wheels:
+    name: Wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest      # x86_64 and i686, manylinux + musllinux
+          - os: ubuntu-24.04-arm   # aarch64, manylinux + musllinux
+          - os: macos-latest       # arm64 and x86_64 (cross-compiled, tested under Rosetta)
+            archs: arm64 x86_64
+          - os: windows-latest     # AMD64 and x86
+          - os: windows-11-arm     # ARM64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install cibuildwheel
+        run: python -m pip install "cibuildwheel>=3,<4"
+      - name: Build and test wheels
+        run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_ARCHS_MACOS: ${{ matrix.archs }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sdist
+        run: pipx run build --sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: Publish to PyPI
+    if: github.event_name == 'release'
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # PyPI trusted publishing; no API token stored
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

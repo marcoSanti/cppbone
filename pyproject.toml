@@ -1,0 +1,32 @@
+[build-system]
+requires = ["scikit-build-core>=0.11", "pybind11>=3.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "cppbone"
+version = "0.2.3"
+description = "Fast C++ port of NetBone: backbone extraction from simple weighted networks"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Marco Edoardo Santimaria" }]
+keywords = ["backbone", "network", "graph", "sparsification"]
+classifiers = [
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+[project.optional-dependencies]
+interop = ["networkx", "pandas"]  # converting to and from networkx graphs / pandas DataFrames
+
+[tool.scikit-build]
+minimum-version = "0.11"
+cmake.define.NETBONE_PYTHON = "ON"
+sdist.exclude = [".github", "benchmarks", "build*"]
+
+[tool.cibuildwheel]
+build-verbosity = 1
+test-command = "python {project}/tests/test_python.py {project}/data/data.csv"
