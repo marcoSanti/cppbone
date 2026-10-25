@@ -1,7 +1,8 @@
 #include "netbone/graph.hpp"
 
 #include <algorithm>
-#include <charconv>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <fstream>
 #include <ostream>
@@ -171,9 +172,13 @@ Graph Graph::read_csv(const std::string& path) {
 
 std::string format_double(double x) {
     if (std::isnan(x)) return "";
+    // shortest round-trip digits; std::to_chars(double) needs macOS 13.3+ libc++
     char buf[64];
-    auto res = std::to_chars(buf, buf + sizeof buf, x);
-    return std::string(buf, res.ptr);
+    for (int p = 15; p <= 17; ++p) {
+        std::snprintf(buf, sizeof buf, "%.*g", p, x);
+        if (std::strtod(buf, nullptr) == x) break;
+    }
+    return buf;
 }
 
 void Graph::to_csv(std::ostream& out) const {

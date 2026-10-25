@@ -2,17 +2,35 @@ name: Wheels
 
 # Builds wheels for every CPython version cibuildwheel supports that matches requires-python (>=3.10),
 # on Linux (glibc and musl), macOS and Windows, x86 and ARM. Each wheel is installed and tested by cibuildwheel.
-# Publishing a GitHub release uploads the wheels and the sdist to PyPI.
+# The version comes from project() in CMakeLists.txt. A push to main whose version has no v<version> tag yet
+# creates that GitHub release (with the wheels) and uploads the wheels and the sdist to PyPI.
 
 on:
   push:
     branches: [main]
   pull_request:
-  release:
-    types: [published]
   workflow_dispatch:
 
 jobs:
+  version:
+    name: Read version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      released: ${{ steps.version.outputs.released }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          version=$(sed -nE 's/^project\(.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          fi
+
   wheels:
     name: Wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -55,16 +73,24 @@ jobs:
           path: dist/*.tar.gz
 
   publish:
-    name: Publish to PyPI
-    if: github.event_name == 'release'
-    needs: [wheels, sdist]
+    name: Release v${{ needs.version.outputs.version }} and publish to PyPI
+    if: github.event_name == 'push' && needs.version.outputs.released == 'false'
+    needs: [version, wheels, sdist]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write  # PyPI trusted publishing; no API token stored
+      contents: write  # create the tag and the GitHub release
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_KEY }}  # PyPI API token
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "v${{ needs.version.outputs.version }}" dist/*
+          --repo "${{ github.repository }}" --target "${{ github.sha }}" --generate-notes
