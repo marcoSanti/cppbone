@@ -7,7 +7,11 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <algorithm>
+#include <ranges>
+#include <set>
 #include <sstream>
+#include <string_view>
 
 #include "cppbone/cppbone.hpp"
 
@@ -37,7 +41,7 @@ Attrs to_attrs(const py::handle& data) {
 Graph from_networkx(const py::object& g) {
     if (py::cast<bool>(g.attr("is_directed")())) throw py::type_error("only undirected graphs are supported");
     Graph out;
-    for (auto n : g.attr("nodes")()) out.add_node(py::str(n));
+    for (auto n : g.attr("nodes")()) out.add_node(std::string(py::str(n)));
     for (auto e : g.attr("edges")(py::arg("data") = true)) {
         auto t = py::reinterpret_borrow<py::tuple>(e);
         out.add_edge(std::string(py::str(t[0])), std::string(py::str(t[1])), to_attrs(t[2]));
@@ -52,14 +56,12 @@ Graph from_networkx(const py::object& g) {
 Graph from_pandas(const py::object& df) {
     std::vector<std::string> cols;
     for (auto c : df.attr("columns")) cols.push_back(py::str(c));
-    if (std::find(cols.begin(), cols.end(), "source") == cols.end() ||
-        std::find(cols.begin(), cols.end(), "target") == cols.end())
-        throw py::value_error("DataFrame needs 'source' and 'target' columns");
+    const auto src = static_cast<size_t>(std::ranges::find(cols, "source") - cols.begin());
+    const auto dst = static_cast<size_t>(std::ranges::find(cols, "target") - cols.begin());
+    if (src == cols.size() || dst == cols.size()) throw py::value_error("DataFrame needs 'source' and 'target' columns");
     std::vector<std::vector<py::object>> values;
     for (const auto& c : cols) values.push_back(py::cast<std::vector<py::object>>(df[py::str(c)].attr("tolist")()));
     Graph out;
-    size_t src = std::find(cols.begin(), cols.end(), "source") - cols.begin();
-    size_t dst = std::find(cols.begin(), cols.end(), "target") - cols.begin();
     for (size_t r = 0; r < values[0].size(); ++r) {
         Attrs a;
         for (size_t c = 0; c < cols.size(); ++c) {
@@ -100,19 +102,19 @@ py::object columns_to_pandas(const std::vector<std::string>& order, py::dict col
 /// @param g Graph.
 /// @return DataFrame with source, target and every edge attribute in alphabetical order.
 py::object edges_to_pandas(const Graph& g) {
-    std::vector<std::string> order{"source", "target"};
+    const auto edges = g.edges();
     std::set<std::string> keys;
-    for (const auto& e : g.edges())
-        for (const auto& kv : g.edge_attrs(e.id)) keys.insert(kv.first);
-    order.insert(order.end(), keys.begin(), keys.end());
+    for (const auto& e : edges) keys.insert_range(g.edge_attrs(e.id) | std::views::keys);
+    std::vector<std::string> order{"source", "target"};
+    order.append_range(keys);
     py::dict cols;
     py::list src, dst;
-    for (const auto& e : g.edges()) src.append(g.label(e.u)), dst.append(g.label(e.v));
+    for (const auto& e : edges) src.append(g.label(e.u)), dst.append(g.label(e.v));
     cols["source"] = src;
     cols["target"] = dst;
     for (const auto& k : keys) {
         py::list v;
-        for (const auto& e : g.edges()) v.append(g.get(e.id, k));
+        for (const auto& e : edges) v.append(g.get(e.id, k));
         cols[py::str(k)] = v;
     }
     return columns_to_pandas(order, cols);
@@ -123,14 +125,13 @@ py::object edges_to_pandas(const Graph& g) {
 /// @return DataFrame with one column per node attribute, in alphabetical order.
 py::object nodes_to_pandas(const Graph& g) {
     std::set<std::string> keys;
-    for (int u = 0; u < g.number_of_nodes(); ++u)
-        for (const auto& kv : g.node_attrs(u)) keys.insert(kv.first);
+    for (const int u : g.nodes()) keys.insert_range(g.node_attrs(u) | std::views::keys);
     py::dict cols;
     py::list index;
-    for (int u = 0; u < g.number_of_nodes(); ++u) index.append(g.label(u));
+    for (const int u : g.nodes()) index.append(g.label(u));
     for (const auto& k : keys) {
         py::list v;
-        for (int u = 0; u < g.number_of_nodes(); ++u) v.append(g.node_get(u, k));
+        for (const int u : g.nodes()) v.append(g.node_get(u, k));
         cols[py::str(k)] = v;
     }
     return columns_to_pandas({keys.begin(), keys.end()}, cols, index);
@@ -141,14 +142,14 @@ py::object nodes_to_pandas(const Graph& g) {
 /// @return networkx.Graph.
 py::object to_networkx(const Graph& g) {
     py::object out = py::module_::import("networkx").attr("Graph")();
-    for (int u = 0; u < g.number_of_nodes(); ++u) {
+    for (const int u : g.nodes()) {
         py::dict attrs;
-        for (const auto& kv : g.node_attrs(u)) attrs[py::str(kv.first)] = kv.second;
+        for (const auto& [name, value] : g.node_attrs(u)) attrs[py::str(name)] = value;
         out.attr("add_node")(g.label(u), **attrs);
     }
     for (const auto& e : g.edges()) {
         py::dict attrs;
-        for (const auto& kv : g.edge_attrs(e.id)) attrs[py::str(kv.first)] = kv.second;
+        for (const auto& [name, value] : g.edge_attrs(e.id)) attrs[py::str(name)] = value;
         out.attr("add_edge")(g.label(e.u), g.label(e.v), **attrs);
     }
     return out;
@@ -195,9 +196,8 @@ PYBIND11_MODULE(cppbone, m) {
         .def("number_of_edges", &Graph::number_of_edges)
         .def("__len__", &Graph::number_of_nodes)
         .def("nodes", [](const Graph& g) {
-            std::vector<std::string> out;
-            for (int u = 0; u < g.number_of_nodes(); ++u) out.push_back(g.label(u));
-            return out;
+            return g.nodes() | std::views::transform([&](const int u) { return g.label(u); }) |
+                   std::ranges::to<std::vector>();
         })
         .def("edges", [](const Graph& g, bool data) {
             py::list out;
@@ -235,9 +235,7 @@ PYBIND11_MODULE(cppbone, m) {
         .def_property_readonly("filter_on",
                                [](const Backbone& b) { return b.filter_on == FilterOn::Edges ? "Edges" : "Nodes"; })
         .def("compatible_filters", [](const Backbone& b) {
-            std::vector<std::string> out;
-            for (Filter f : b.filters) out.push_back(filter_name(f));
-            return out;
+            return b.filters | std::views::transform(filter_name) | std::ranges::to<std::vector>();
         })
         .def("narrate", &Backbone::narrate)
         .def("to_dataframe", [](const Backbone& b) {

@@ -5,6 +5,7 @@
 
 #include <iosfwd>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "cppbone/graph.hpp"
@@ -22,7 +23,7 @@ struct Backbone;
 /// @brief Signature shared by every filter, so filters can be compared and stored like the Python
 /// function objects.
 using Filter = Graph (*)(const Backbone &backbone, double value, bool narrate,
-                         const std::string &secondary_property, bool secondary_property_ascending);
+                         std::string_view secondary_property, bool secondary_property_ascending);
 
 /// @brief Keeps the edges whose "in_backbone" attribute is set (filters.py).
 /// @param backbone Backbone to filter.
@@ -34,8 +35,8 @@ using Filter = Graph (*)(const Backbone &backbone, double value, bool narrate,
 /// does not support
 ///         this filter.
 Graph boolean_filter(const Backbone &backbone, double value = 0, bool narrate = true,
-                     const std::string &secondary_property = "weight",
-                     bool secondary_property_ascending     = false);
+                     std::string_view secondary_property = "weight",
+                     bool secondary_property_ascending   = false);
 
 /// @brief Keeps the edges (or nodes) whose property passes a threshold (filters.py).
 ///
@@ -50,8 +51,8 @@ Graph boolean_filter(const Backbone &backbone, double value = 0, bool narrate = 
 /// accepted
 ///         filters) if the method does not support this filter.
 Graph threshold_filter(const Backbone &backbone, double value, bool narrate = true,
-                       const std::string &secondary_property = "weight",
-                       bool secondary_property_ascending     = false);
+                       std::string_view secondary_property = "weight",
+                       bool secondary_property_ascending   = false);
 
 /// @brief Keeps the best fraction of the edges (or nodes) by property (filters.py).
 ///
@@ -66,8 +67,8 @@ Graph threshold_filter(const Backbone &backbone, double value, bool narrate = tr
 /// accepted
 ///         filters) if the method does not support this filter.
 Graph fraction_filter(const Backbone &backbone, double value, bool narrate = true,
-                      const std::string &secondary_property = "weight",
-                      bool secondary_property_ascending     = false);
+                      std::string_view secondary_property = "weight",
+                      bool secondary_property_ascending   = false);
 
 /// @brief Returns a filter's Python name.
 /// @param f Filter.

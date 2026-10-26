@@ -3,7 +3,10 @@
 
 #include "cppbone/backbone.hpp"
 
+#include <algorithm>
+#include <array>
 #include <iostream>
+#include <string_view>
 
 namespace cppbone {
 
@@ -16,21 +19,17 @@ void Backbone::to_csv(std::ostream &out) const {
 }
 
 void Backbone::narrate() const {
-    static const char *known[] = {
-        "Disparity Filter",           "Enhanced Configuration Model Filter",
-        "Marginal Likelihood Filter", "Locally Adaptive Network Sparsification Filter",
-        "Noise Corrected Filter",     "High Salience Skeleton Filter",
-        "Modularity Filter",          "Ultrametric Distance Filter",
-        "Maximum Spanning Tree",      "Metric Distance Filter",
-        "H-Backbone Filter",          "Doubly Stochastic Filter",
-        "Global Threshold Filter"};
-    for (const char *k : known) {
-        if (method_name == k) {
-            std::cout << method_name << '\n';
-            return;
-        }
-    }
-    std::cout << "Citation here\n";
+    using namespace std::string_view_literals;
+    static constexpr std::array known = {
+        "Disparity Filter"sv,           "Enhanced Configuration Model Filter"sv,
+        "Marginal Likelihood Filter"sv, "Locally Adaptive Network Sparsification Filter"sv,
+        "Noise Corrected Filter"sv,     "High Salience Skeleton Filter"sv,
+        "Modularity Filter"sv,          "Ultrametric Distance Filter"sv,
+        "Maximum Spanning Tree"sv,      "Metric Distance Filter"sv,
+        "H-Backbone Filter"sv,          "Doubly Stochastic Filter"sv,
+        "Global Threshold Filter"sv};
+    std::cout << (std::ranges::contains(known, method_name) ? method_name : "Citation here")
+              << '\n';
 }
 
 } // namespace cppbone

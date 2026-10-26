@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <ranges>
 
 #include "../../include/cppbone/detail.hpp"
 
@@ -13,15 +15,15 @@ namespace cppbone {
 /// @param node Node index.
 /// @return (edge id, weight as a percentage of the node's strength) pairs.
 static std::vector<std::pair<int, double>> get_neighbor_weights(const Graph &g, int node) {
-    std::vector<std::pair<int, double>> out;
     double total = 0;
-    for (auto [v, id] : g.adj(node)) {
+    for (const auto [v, id] : g.adj(node)) {
         total += g.get(id, "weight");
     }
-    for (auto [v, id] : g.adj(node)) {
-        out.emplace_back(id, g.get(id, "weight") / total * 100);
-    }
-    std::stable_sort(out.begin(), out.end(), [](auto &a, auto &b) { return a.second > b.second; });
+    auto out = g.adj(node) | std::views::transform([&](const Adjacent &a) {
+                   return std::pair{a.edge, g.get(a.edge, "weight") / total * 100};
+               }) |
+               std::ranges::to<std::vector>();
+    std::ranges::stable_sort(out, std::greater<>(), [](const auto &p) { return p.second; });
     return out;
 }
 
@@ -31,9 +33,7 @@ static std::vector<std::pair<int, double>> get_neighbor_weights(const Graph &g, 
 /// @return 100 / (i + 1) for the first i + 1 entries, 0 after.
 static std::vector<double> get_ideal_distribution(int i, int total) {
     std::vector<double> a(total, 0);
-    for (int j = 0; j <= i; ++j) {
-        a[j] = 100.0 / (i + 1);
-    }
+    std::ranges::fill_n(a.begin(), i + 1, 100.0 / (i + 1));
     return a;
 }
 
@@ -65,11 +65,9 @@ Backbone mlam(const Graph &data) {
     std::vector<std::vector<int>> kept(n);
 #pragma omp parallel for schedule(dynamic, 64)
     for (int node = 0; node < n; ++node) {
-        auto neighbors_weights = get_neighbor_weights(g, node);
-        std::vector<double> real_distribution;
-        for (auto &[fst, snd] : neighbors_weights) {
-            real_distribution.push_back(snd);
-        }
+        const auto neighbors_weights = get_neighbor_weights(g, node);
+        const auto real_distribution =
+            neighbors_weights | std::views::values | std::ranges::to<std::vector>();
         const int neighbors_count = static_cast<int>(neighbors_weights.size());
         int edge_index            = 0;
         if (neighbors_count != 1) {
@@ -91,15 +89,12 @@ Backbone mlam(const Graph &data) {
                 }
             }
         }
-        for (int j = 0; j < neighbors_count && j <= edge_index; ++j) {
-            kept[node].push_back(neighbors_weights[j].first);
-        }
+        kept[node] = neighbors_weights | std::views::keys | std::views::take(edge_index + 1) |
+                     std::ranges::to<std::vector>();
     }
     std::vector<char> keep(g.edge_capacity(), 0);
-    for (int node = 0; node < n; ++node) {
-        for (const int id : kept[node]) {
-            keep[id] = 1;
-        }
+    for (const int id : kept | std::views::join) {
+        keep[id] = 1;
     }
     const auto edges = g.edges();
     const int m      = static_cast<int>(edges.size());
@@ -107,8 +102,10 @@ Backbone mlam(const Graph &data) {
     for (int i = 0; i < m; ++i) {
         g.set(edges[i].id, "in_backbone", keep[edges[i].id] != 0);
     }
-    return {std::move(g),   "Multiple Linkage Analysis", "weight", false, {boolean_filter},
-            FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "Multiple Linkage Analysis",
+            .property_name = "weight",
+            .filters       = {boolean_filter}};
 }
 
 } // namespace cppbone

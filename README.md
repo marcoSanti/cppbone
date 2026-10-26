@@ -1,6 +1,6 @@
 # cppbone
 
-cppbone is a C++17 port of [NetBone](https://gitlab.liris.cnrs.fr/coregraphie/netbone), the Python library for
+cppbone is a C++23 port of [NetBone](https://gitlab.liris.cnrs.fr/coregraphie/netbone), the Python library for
 extracting backbones from simple weighted networks. It has every NetBone backbone method, the three filters and
 the `Compare` tools. The core library needs only the standard library. An optional pybind11 module exposes the same
 API to Python.
@@ -28,7 +28,8 @@ method (see [Benchmark](#benchmark)).
 
 ## Build
 
-Requires CMake ≥ 3.16 and a C++17 compiler. The library uses Boost ≥ 1.80 (the header-only Graph and Math libraries)
+Requires CMake ≥ 3.20 and a C++23 compiler: GCC ≥ 14, Clang ≥ 19 (Xcode ≥ 16.3 on macOS) or MSVC ≥ 19.42
+(Visual Studio 2022 17.12). The library uses Boost ≥ 1.80 (the header-only Graph and Math libraries)
 and a LAPACK. CMake takes the installed ones and otherwise downloads Boost 1.90 and builds OpenBLAS 0.3.33, which
 takes a few minutes; installing them first is faster:
 

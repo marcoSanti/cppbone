@@ -45,12 +45,10 @@ Backbone high_salience_skeleton(const Graph &data) {
         g.set(id, "salience", static_cast<double>(salience[id]) / n);
         g.set(id, "in_backbone", static_cast<double>(salience[id]) / n > 0.8);
     }
-    return {std::move(g),
-            "High Salience Skeleton Filter",
-            "salience",
-            false,
-            {boolean_filter, threshold_filter, fraction_filter},
-            FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "High Salience Skeleton Filter",
+            .property_name = "salience",
+            .filters       = {boolean_filter, threshold_filter, fraction_filter}};
 }
 
 } // namespace cppbone

@@ -8,14 +8,16 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <functional>
-#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <optional>
-#include <sstream>
+#include <print>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -156,17 +158,14 @@ struct UsageError : std::runtime_error {
 /// @param raw Values as given to a list flag.
 /// @return The non-empty items, in order.
 std::vector<std::string> split_list(const std::vector<std::string> &raw) {
-    std::vector<std::string> out;
-    for (const auto &item : raw) {
-        std::stringstream ss(item);
-        std::string tok;
-        while (std::getline(ss, tok, ',')) {
-            if (!tok.empty()) {
-                out.push_back(tok);
-            }
-        }
-    }
-    return out;
+    return raw | std::views::transform([](const std::string &item) {
+               return item | std::views::split(',');
+           }) |
+           std::views::join |
+           std::views::filter([](const auto &tok) { return !std::ranges::empty(tok); }) |
+           std::views::transform(
+               [](const auto &tok) { return std::string(std::string_view(tok)); }) |
+           std::ranges::to<std::vector>();
 }
 
 /// @brief Name of a method registry entry.
@@ -196,20 +195,15 @@ std::vector<size_t> select(const Registry &registry, const std::vector<std::stri
             chosen.assign(registry.size(), true);
             continue;
         }
-        auto it = std::find_if(registry.begin(), registry.end(),
-                               [&](const auto &e) { return name_of(e) == n; });
+        const auto it = std::ranges::find(registry, n, [](const auto &e) { return name_of(e); });
         if (it == registry.end()) {
-            throw UsageError("unknown " + what + " '" + n + "' (see --list)");
+            throw UsageError(std::format("unknown {} '{}' (see --list)", what, n));
         }
         chosen[it - registry.begin()] = true;
     }
-    std::vector<size_t> idx;
-    for (size_t i = 0; i < chosen.size(); ++i) {
-        if (chosen[i]) {
-            idx.push_back(i);
-        }
-    }
-    return idx;
+    return std::views::iota(size_t{0}, chosen.size()) |
+           std::views::filter([&](const size_t i) { return chosen[i]; }) |
+           std::ranges::to<std::vector>();
 }
 
 /// @brief Parses a comma-separated list of numbers.
@@ -227,7 +221,7 @@ std::vector<double> parse_doubles(const std::string &s) {
             pos = 0;
         }
         if (pos != tok.size()) {
-            throw UsageError("not a number: '" + tok + "'");
+            throw UsageError(std::format("not a number: '{}'", tok));
         }
         out.push_back(v);
     }
@@ -239,8 +233,7 @@ std::vector<double> parse_doubles(const std::string &s) {
 /// @param f Filter.
 /// @return true if f is among b's compatible filters.
 bool accepts(const cb::Backbone &b, cb::Filter f) {
-    const auto &fs = b.compatible_filters();
-    return std::find(fs.begin(), fs.end(), f) != fs.end();
+    return std::ranges::contains(b.compatible_filters(), f);
 }
 
 /// @brief Lists a backbone's compatible filters by command-line name.
@@ -248,10 +241,10 @@ bool accepts(const cb::Backbone &b, cb::Filter f) {
 /// @return Names such as "threshold,fraction".
 std::string compatible_list(const cb::Backbone &b) {
     std::string s;
-    for (cb::Filter f : b.compatible_filters()) {
-        std::string n = cb::filter_name(f);
-        n             = n.substr(0, n.find("_filter"));
-        s += (s.empty() ? "" : ",") + n;
+    for (const cb::Filter f : b.compatible_filters()) {
+        const std::string n = cb::filter_name(f);
+        s += std::format("{}{}", s.empty() ? "" : ",",
+                         std::string_view(n).substr(0, n.find("_filter")));
     }
     return s;
 }
@@ -265,7 +258,7 @@ std::string compatible_list(const cb::Backbone &b) {
 void emit(const std::optional<fs::path> &dir, const std::string &name,
           const std::function<void(std::ostream &)> &w) {
     if (!dir) {
-        std::cout << "\n# " << name << '\n';
+        std::print("\n# {}\n", name);
         w(std::cout);
         return;
     }
@@ -300,9 +293,7 @@ public:
     void start(const std::string &what) {
         if (bar_) {
             bar_->set_option(indicators::option::PostfixText{
-                what + " (" + std::to_string(done_ + 1) + "/" + std::to_string(total_) + ")"});
-        }
-        if (bar_) {
+                std::format("{} ({}/{})", what, done_ + 1, total_)});
             bar_->print_progress();
         }
     }
@@ -326,21 +317,21 @@ private:
 
 /// @brief Prints the names of the methods, filters, measures and distributions (--list).
 void print_list() {
-    std::cout << "methods:\n";
+    std::println("methods:");
     for (const auto &m : methods()) {
-        std::cout << "  " << std::left << std::setw(32) << m.name << m.family << '\n';
+        std::println("  {:<32}{}", m.name, m.family);
     }
-    std::cout << "\nfilters:\n";
+    std::println("\nfilters:");
     for (const char *f : {"boolean", "threshold", "fraction"}) {
-        std::cout << "  " << f << '\n';
+        std::println("  {}", f);
     }
-    std::cout << "\nmeasures (--measure):\n";
-    for (const auto &m : measures()) {
-        std::cout << "  " << m.first << '\n';
+    std::println("\nmeasures (--measure):");
+    for (const auto &name : measures() | std::views::keys) {
+        std::println("  {}", name);
     }
-    std::cout << "\ndistributions (--ks):\n";
-    for (const auto &d : distributions()) {
-        std::cout << "  " << d.first << '\n';
+    std::println("\ndistributions (--ks):");
+    for (const auto &name : distributions() | std::views::keys) {
+        std::println("  {}", name);
     }
 }
 
@@ -467,7 +458,7 @@ int main(int argc, char **argv) {
         }
         const cb::Filter flt = args::get(filter);
         if (flt != cb::boolean_filter && !value && !(progression && !ks_names && !consensus)) {
-            throw UsageError("--filter " + cb::filter_name(flt) + " needs --value");
+            throw UsageError(std::format("--filter {} needs --value", cb::filter_name(flt)));
         }
         if (progression && flt == cb::boolean_filter) {
             throw UsageError("--progression needs --filter threshold or fraction");
@@ -482,25 +473,25 @@ int main(int argc, char **argv) {
             throw UsageError("--source-col/--target-col/--weight-col need --no-header");
         }
 
-        auto chosen_methods  = select(methods(),
-                                     method_names ? split_list(args::get(method_names))
-                                                   : std::vector<std::string>{"all"},
-                                      "method");
-        auto chosen_measures = select(measures(), split_list(args::get(measure_names)), "measure");
-        auto chosen_dists =
+        const auto chosen_methods = select(methods(),
+                                           method_names ? split_list(args::get(method_names))
+                                                        : std::vector<std::string>{"all"},
+                                           "method");
+        const auto chosen_measures =
+            select(measures(), split_list(args::get(measure_names)), "measure");
+        const auto chosen_dists =
             select(distributions(), split_list(args::get(ks_names)), "distribution");
-        std::vector<double> progression_values =
+        const std::vector<double> progression_values =
             progression ? parse_doubles(args::get(progression)) : std::vector<double>{};
         const double filter_value = value ? args::get(value) : 0;
 
-        MethodOptions opts;
-        opts.ecm_seed               = args::get(ecm_seed);
-        opts.modularity_seed        = args::get(modularity_seed);
-        opts.glanb_c                = args::get(glanb_c);
-        opts.betweenness_unweighted = betweenness_unweighted;
-        opts.betweenness_raw        = betweenness_raw;
-        opts.degree_weighted        = degree_weighted;
-        opts.noise_corrected_exact  = noise_exact;
+        const MethodOptions opts{.ecm_seed               = args::get(ecm_seed),
+                                 .modularity_seed        = args::get(modularity_seed),
+                                 .glanb_c                = args::get(glanb_c),
+                                 .betweenness_unweighted = betweenness_unweighted,
+                                 .betweenness_raw        = betweenness_raw,
+                                 .degree_weighted        = degree_weighted,
+                                 .noise_corrected_exact  = noise_exact};
 
         std::optional<fs::path> out_dir;
         if (output) {
@@ -513,16 +504,16 @@ int main(int argc, char **argv) {
         }
 
         // ---- load ----
-        auto t_load = std::chrono::steady_clock::now();
-        cb::Graph g = no_header ? cb::Graph::read_csv(args::get(input), args::get(source_col),
-                                                      args::get(target_col), args::get(weight_col))
-                                : cb::Graph::read_csv(args::get(input));
+        const auto t_load = std::chrono::steady_clock::now();
+        cb::Graph g       = no_header ? cb::Graph::read_csv(args::get(input), args::get(source_col),
+                                                            args::get(target_col), args::get(weight_col))
+                                      : cb::Graph::read_csv(args::get(input));
         if (weight_name && args::get(weight_name) != "weight") {
             const std::string &w = args::get(weight_name);
             for (const auto &e : g.edges()) {
-                double x = g.get(e.id, w);
+                const double x = g.get(e.id, w);
                 if (std::isnan(x)) {
-                    throw std::runtime_error("column '" + w + "' missing on some edge");
+                    throw std::runtime_error(std::format("column '{}' missing on some edge", w));
                 }
                 g.set(e.id, "weight", x);
             }
@@ -530,11 +521,11 @@ int main(int argc, char **argv) {
         if (use_lcc) {
             g = cb::lcc(g);
         }
-        std::cout
-            << "network: " << g.number_of_nodes() << " nodes, " << g.number_of_edges()
-            << " edges (loaded in " << std::fixed << std::setprecision(1)
-            << std::chrono::duration<double>(std::chrono::steady_clock::now() - t_load).count()
-            << std::defaultfloat << " s, " << cb::num_threads() << " threads)\n";
+        std::println(
+            "network: {} nodes, {} edges (loaded in {:.1f} s, {} threads)", g.number_of_nodes(),
+            g.number_of_edges(),
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t_load).count(),
+            cb::num_threads());
 
         // ---- run, filter and write each method; only backbones needed for the comparison are kept
         // ----
@@ -549,15 +540,15 @@ int main(int argc, char **argv) {
         std::vector<Row> rows;
         {
             Progress progress(chosen_methods.size(), !quiet && !narrate && CPPBONE_ISATTY(2));
-            for (size_t i : chosen_methods) {
+            for (const size_t i : chosen_methods) {
                 const Method &m = methods()[i];
                 progress.start(m.name);
-                auto t0 = std::chrono::steady_clock::now();
+                const auto t0 = std::chrono::steady_clock::now();
                 std::optional<cb::Backbone> b;
                 try {
                     b = m.run(g, opts);
                 } catch (const std::exception &e) {
-                    std::cerr << "\n" << m.name << " failed: " << e.what() << '\n';
+                    std::print(stderr, "\n{} failed: {}\n", m.name, e.what());
                     progress.tick();
                     continue;
                 }
@@ -590,19 +581,11 @@ int main(int argc, char **argv) {
             }
         }
 
-        std::cout << '\n'
-                  << std::left << std::setw(32) << "method" << std::right << std::setw(10)
-                  << "time [s]" << std::setw(10) << "nodes" << std::setw(10) << "edges"
-                  << "  note\n";
+        std::println("\n{:<32}{:>10}{:>10}{:>10}  note", "method", "time [s]", "nodes", "edges");
         for (const auto &r : rows) {
-            std::cout << std::left << std::setw(32) << r.name << std::right << std::fixed
-                      << std::setprecision(3) << std::setw(10) << r.seconds << std::defaultfloat;
-            if (r.nodes >= 0) {
-                std::cout << std::setw(10) << r.nodes << std::setw(10) << r.edges;
-            } else {
-                std::cout << std::setw(10) << "-" << std::setw(10) << "-";
-            }
-            std::cout << "  " << r.note << '\n';
+            const auto count = [](const int x) { return x >= 0 ? std::to_string(x) : "-"; };
+            std::println("{:<32}{:>10.3f}{:>10}{:>10}  {}", r.name, r.seconds, count(r.nodes),
+                         count(r.edges), r.note);
         }
 
         // ---- comparison ----
@@ -611,11 +594,13 @@ int main(int argc, char **argv) {
             if (n_compared == 0) {
                 throw std::runtime_error("no selected method supports the chosen filter");
             }
-            for (size_t i : chosen_measures) {
-                cmp.add_property(measures()[i].first, measures()[i].second);
+            for (const size_t i : chosen_measures) {
+                const auto &[name, property] = measures()[i];
+                cmp.add_property(name, property);
             }
-            for (size_t i : chosen_dists) {
-                cmp.add_distribution(distributions()[i].first, distributions()[i].second);
+            for (const size_t i : chosen_dists) {
+                const auto &[name, distribution] = distributions()[i];
+                cmp.add_distribution(name, distribution);
             }
 
             if (!progression_values.empty()) {
@@ -627,8 +612,8 @@ int main(int argc, char **argv) {
             }
             // Graphs are only summarized on stdout; the edge list goes to the output directory.
             auto write_consensus = [&](const cb::Graph &c) {
-                std::cout << "\nconsensus: " << c.number_of_nodes() << " nodes, "
-                          << c.number_of_edges() << " edges\n";
+                std::println("\nconsensus: {} nodes, {} edges", c.number_of_nodes(),
+                             c.number_of_edges());
                 if (out_dir) {
                     emit(out_dir, "consensus.csv", [&](std::ostream &o) { c.to_csv(o); });
                 }
@@ -653,13 +638,13 @@ int main(int argc, char **argv) {
             }
         }
         if (out_dir) {
-            std::cout << "\nwritten to " << out_dir->string() << '\n';
+            std::println("\nwritten to {}", out_dir->string());
         }
     } catch (const UsageError &e) {
-        std::cerr << "error: " << e.what() << "\n(run with --help for usage)\n";
+        std::print(stderr, "error: {}\n(run with --help for usage)\n", e.what());
         return 2;
     } catch (const std::exception &e) {
-        std::cerr << "error: " << e.what() << '\n';
+        std::println(stderr, "error: {}", e.what());
         return 1;
     }
     return 0;

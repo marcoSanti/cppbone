@@ -15,7 +15,7 @@ namespace cppbone {
 /// ordered pairs, which is networkx's unnormalised value; normalisation then divides by n (n - 1)
 /// / 2.
 std::vector<double> edge_betweenness_centrality(const Graph &g, const bool normalized,
-                                                const std::string &weight) {
+                                                const std::string_view weight) {
     const int n = g.number_of_nodes();
     std::vector bc(g.edge_capacity(), 0.0);
     auto b             = detail::to_boost(g);
@@ -40,21 +40,19 @@ std::vector<double> edge_betweenness_centrality(const Graph &g, const bool norma
 }
 
 Backbone betweenness(const Graph &data, const bool weighted, const bool normalized) {
-    Graph g                = data;
-    const std::string name = weighted ? "weighted-betweenness" : "betweenness";
-    const auto bc          = edge_betweenness_centrality(g, normalized, weighted ? "weight" : "");
-    const auto edges       = g.edges();
-    const int m            = static_cast<int>(edges.size());
+    Graph g                     = data;
+    const std::string_view name = weighted ? "weighted-betweenness" : "betweenness";
+    const auto bc    = edge_betweenness_centrality(g, normalized, weighted ? "weight" : "");
+    const auto edges = g.edges();
+    const int m      = static_cast<int>(edges.size());
 #pragma omp parallel for schedule(static)
     for (int i = 0; i < m; ++i) {
         g.set(edges[i].id, name, bc[edges[i].id]);
     }
-    return {std::move(g),
-            weighted ? "Weighted Betweenness" : "Betweenness",
-            name,
-            false,
-            {threshold_filter, fraction_filter},
-            FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = weighted ? "Weighted Betweenness" : "Betweenness",
+            .property_name = std::string(name),
+            .filters       = {threshold_filter, fraction_filter}};
 }
 
 } // namespace cppbone

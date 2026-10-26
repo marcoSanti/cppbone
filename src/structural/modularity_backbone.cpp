@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <numeric>
 #include <random>
+#include <ranges>
 
 #include "../../include/cppbone/detail.hpp"
 
@@ -25,8 +27,8 @@ struct WGraph {
     /// @return The weighted degree.
     [[nodiscard]] double degree(const int u) const {
         double d = 2 * loops[u];
-        for (auto &p : adj[u]) {
-            d += p.second;
+        for (const double w : adj[u] | std::views::values) {
+            d += w;
         }
         return d;
     }
@@ -34,7 +36,7 @@ struct WGraph {
     /// @return Half the sum of the weighted degrees.
     [[nodiscard]] double size() const {
         double s = 0;
-        for (size_t u = 0; u < adj.size(); ++u) {
+        for (const int u : std::views::iota(0, static_cast<int>(adj.size()))) {
             s += degree(u);
         }
         return s / 2;
@@ -96,11 +98,8 @@ struct Status {
 /// @param st State, updated in place.
 /// @param rng Generator for the random node and community orders.
 void one_level(const WGraph &g, Status &st, std::mt19937 &rng) {
-    const int n = static_cast<int>(g.adj.size());
-    std::vector<int> order(n);
-    for (int i = 0; i < n; ++i) {
-        order[i] = i;
-    }
+    const int n    = static_cast<int>(g.adj.size());
+    auto order     = std::views::iota(0, n) | std::ranges::to<std::vector>();
     double new_mod = st.modularity();
     bool modified  = true;
     while (modified) {
@@ -108,10 +107,10 @@ void one_level(const WGraph &g, Status &st, std::mt19937 &rng) {
         modified             = false;
         std::shuffle(order.begin(), order.end(), rng);
         for (const int node : order) {
-            int com_node     = st.node2com[node];
-            double degc_totw = st.gdegrees[node] / (st.total_weight * 2.);
+            const int com_node     = st.node2com[node];
+            const double degc_totw = st.gdegrees[node] / (st.total_weight * 2.);
             std::map<int, double> neigh;
-            for (auto [v, w] : g.adj[node]) {
+            for (const auto [v, w] : g.adj[node]) {
                 neigh[st.node2com[v]] += w;
             }
             const double remove_cost =
@@ -125,8 +124,8 @@ void one_level(const WGraph &g, Status &st, std::mt19937 &rng) {
             std::shuffle(items.begin(), items.end(), rng);
             int best_com         = com_node;
             double best_increase = 0;
-            for (auto [com, dnc] : items) {
-                double incr = remove_cost + dnc - st.degrees[com] * degc_totw;
+            for (const auto [com, dnc] : items) {
+                const double incr = remove_cost + dnc - st.degrees[com] * degc_totw;
                 if (incr > best_increase) {
                     best_increase = incr, best_com = com;
                 }
@@ -152,8 +151,9 @@ void one_level(const WGraph &g, Status &st, std::mt19937 &rng) {
 std::vector<int> renumber(const std::vector<int> &node2com) {
     std::map<int, int> ids;
     std::vector<int> out;
-    for (int c : node2com) {
-        out.push_back(ids.emplace(c, static_cast<int>(ids.size())).first->second);
+    out.reserve(node2com.size());
+    for (const int c : node2com) {
+        out.push_back(ids.try_emplace(c, static_cast<int>(ids.size())).first->second);
     }
     return out;
 }
@@ -163,16 +163,13 @@ std::vector<int> renumber(const std::vector<int> &node2com) {
 /// @param g Graph to collapse.
 /// @return Graph with one node per community; internal weight becomes self-loops.
 WGraph induced_graph(const std::vector<int> &part, const WGraph &g) {
-    int k = 0;
-    for (const int c : part) {
-        k = std::max(k, c + 1);
-    }
+    const int k = part.empty() ? 0 : std::ranges::max(part) + 1;
     std::vector<std::map<int, double>> w(k);
     WGraph out;
     out.loops.assign(k, 0);
     for (size_t u = 0; u < g.adj.size(); ++u) {
         out.loops[part[u]] += g.loops[u];
-        for (auto [v, wt] : g.adj[u]) {
+        for (const auto [v, wt] : g.adj[u]) {
             if (static_cast<int>(u) < v) {
                 const int a = part[u];
                 if (const int b = part[v]; a == b) {
@@ -185,9 +182,7 @@ WGraph induced_graph(const std::vector<int> &part, const WGraph &g) {
     }
     out.adj.resize(k);
     for (int a = 0; a < k; ++a) {
-        for (auto [b, wt] : w[a]) {
-            out.adj[a].emplace_back(b, wt);
-        }
+        out.adj[a] = w[a] | std::ranges::to<std::vector<std::pair<int, double>>>();
     }
     return out;
 }
@@ -197,11 +192,8 @@ WGraph induced_graph(const std::vector<int> &part, const WGraph &g) {
 /// @param rng Generator for the random orders.
 /// @return Community of every node, numbered 0..k-1.
 std::vector<int> best_partition(const WGraph &graph, std::mt19937 &rng) {
-    const auto n = static_cast<int>(graph.adj.size());
-    std::vector<int> partition(n);
-    for (int i = 0; i < n; ++i) {
-        partition[i] = i;
-    }
+    const auto n   = static_cast<int>(graph.adj.size());
+    auto partition = std::views::iota(0, n) | std::ranges::to<std::vector>();
     if (graph.size() == 0) {
         return partition;
     }
@@ -217,7 +209,7 @@ std::vector<int> best_partition(const WGraph &graph, std::mt19937 &rng) {
     st.init(current);
     while (true) {
         one_level(current, st, rng);
-        double new_mod = st.modularity();
+        const double new_mod = st.modularity();
         if (new_mod - mod < MIN_GAIN) {
             break;
         }
@@ -244,7 +236,7 @@ Backbone modularity_backbone(const Graph &data, std::uint32_t seed) {
     wg.loops.assign(n, 0);
     const auto weight = g.edge_values("weight");
     for (const auto &[u, v, id] : g.edges()) {
-        double w = weight[id];
+        const double w = weight[id];
         if (u == v) {
             wg.loops[u] += w;
         } else {
@@ -254,18 +246,15 @@ Backbone modularity_backbone(const Graph &data, std::uint32_t seed) {
     }
     std::mt19937 rng(seed);
     const auto membership = best_partition(wg, rng);
-    int k                 = 0;
-    for (const int c : membership) {
-        k = std::max(k, c + 1);
-    }
+    const int k           = membership.empty() ? 0 : std::ranges::max(membership) + 1;
 
     // community.modularity(partition, g) with weights
     const double links = wg.size();
     std::vector<double> inc(k, 0), deg(k, 0);
-    for (int u = 0; u < n; ++u) {
+    for (const int u : g.nodes()) {
         deg[membership[u]] += wg.degree(u);
         inc[membership[u]] += wg.loops[u];
-        for (auto [v, w] : wg.adj[u]) {
+        for (const auto [v, w] : wg.adj[u]) {
             if (membership[v] == membership[u]) {
                 inc[membership[u]] += w / 2;
             }
@@ -285,7 +274,7 @@ Backbone modularity_backbone(const Graph &data, std::uint32_t seed) {
     for (int u = 0; u < n; ++u) {
         diag[u] = wg.loops[u];
         node_deg_by_group[u][membership[u]] += wg.loops[u];
-        for (auto [v, w] : wg.adj[u]) {
+        for (const auto [v, w] : wg.adj[u]) {
             node_deg_by_group[u][membership[v]] += w;
         }
     }
@@ -293,15 +282,15 @@ Backbone modularity_backbone(const Graph &data, std::uint32_t seed) {
     std::vector<double> degrees(n, 0);
 #pragma omp parallel for schedule(dynamic, 256)
     for (int u = 0; u < n; ++u) {
-        for (auto &[_, v] : node_deg_by_group[u]) {
-            degrees[u] += v;
+        for (const double x : node_deg_by_group[u] | std::views::values) {
+            degrees[u] += x;
         }
     }
-    for (int u = 0; u < n; ++u) {
+    for (const int u : g.nodes()) {
         internal_edges += node_deg_by_group[u][membership[u]] / 2;
     }
     std::vector<double> group_degs(k, 0);
-    for (int u = 0; u < n; ++u) {
+    for (const int u : g.nodes()) {
         node_deg_by_group[u][membership[u]] += degrees[u];
         group_degs[membership[u]] += degrees[u] + diag[u];
     }
@@ -315,7 +304,7 @@ Backbone modularity_backbone(const Graph &data, std::uint32_t seed) {
         const double internal_deg = node_deg_by_group[u][membership[u]] - degrees[u];
         const double q1_links     = (internal_edges - internal_deg) / (m - degrees[u]);
         double dot = 0, sq = 0;
-        for (auto [c, x] : node_deg_by_group[u]) {
+        for (const auto [c, x] : node_deg_by_group[u]) {
             dot += x * group_degs[c];
             sq += x * x;
         }
@@ -323,9 +312,11 @@ Backbone modularity_backbone(const Graph &data, std::uint32_t seed) {
         const double q1_degrees      = expected_impact / (4 * std::pow(m - degrees[u], 2));
         g.node_set(u, "vitality", std::abs(modularity_value - (q1_links - q1_degrees)));
     }
-    return {
-        std::move(g),   "Modularity Filter", "vitality", false, {threshold_filter, fraction_filter},
-        FilterOn::Nodes};
+    return {.graph         = std::move(g),
+            .method_name   = "Modularity Filter",
+            .property_name = "vitality",
+            .filters       = {threshold_filter, fraction_filter},
+            .filter_on     = FilterOn::Nodes};
 }
 
 } // namespace cppbone

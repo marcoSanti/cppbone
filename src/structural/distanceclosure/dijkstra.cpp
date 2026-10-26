@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <span>
 
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 #include <boost/property_map/function_property_map.hpp>
@@ -52,17 +53,17 @@ struct Recorder : boost::default_dijkstra_visitor {
 /// @param combine How distances combine.
 /// @param out Result.
 /// @param cutoff Stop distance.
-/// @param removed Edges to ignore, or null.
+/// @param removed Edges to ignore (non-zero entries); empty ignores none.
 template <typename Combine>
-void run(const detail::BoostGraph &b, int source, const std::vector<double> &weight,
+void run(const detail::BoostGraph &b, int source, const std::span<const double> weight,
          Combine combine, detail::ShortestPaths &out, double cutoff,
-         const std::vector<char> *removed) {
+         const std::span<const char> removed) {
     using Edge         = detail::BoostGraph::edge_descriptor;
     const auto edge_id = boost::get(boost::edge_index, b);
     // A removed edge has infinite length, so it never shortens a path.
     auto length        = boost::make_function_property_map<Edge>([&](const Edge &e) {
         const int id = edge_id[e];
-        return removed && (*removed)[id] ? INF : weight[id];
+        return !removed.empty() && removed[id] ? INF : weight[id];
     });
     try {
         boost::dijkstra_shortest_paths(b, source,
@@ -80,9 +81,9 @@ void run(const detail::BoostGraph &b, int source, const std::vector<double> &wei
 
 namespace detail {
 
-void dijkstra(const BoostGraph &b, int source, const std::vector<double> &weight,
+void dijkstra(const BoostGraph &b, int source, const std::span<const double> weight,
               Disjunction disjunction, ShortestPaths &out, const double cutoff,
-              const std::vector<char> *removed) {
+              const std::span<const char> removed) {
     const int n = static_cast<int>(boost::num_vertices(b));
     out.dist.assign(n, INF);
     out.parent_edge.assign(n, -1);
@@ -99,17 +100,17 @@ void dijkstra(const BoostGraph &b, int source, const std::vector<double> &weight
 } // namespace detail
 
 std::vector<double> single_source_dijkstra_path_length(const Graph &g, const int source,
-                                                       const std::vector<double> &weight,
+                                                       const std::span<const double> weight,
                                                        const Disjunction disjunction,
                                                        std::vector<int> *parent) {
     detail::ShortestPaths sp;
     detail::dijkstra(detail::to_boost(g), source, weight, disjunction, sp);
     if (parent) {
         parent->assign(g.number_of_nodes(), -1);
-        for (int u = 0; u < g.number_of_nodes(); ++u) {
+        for (const int u : g.nodes()) {
             if (sp.parent_edge[u] >= 0) {
-                auto [a, c]  = g.ends(sp.parent_edge[u]);
-                (*parent)[u] = a == u ? c : a;
+                const auto [a, c] = g.ends(sp.parent_edge[u]);
+                (*parent)[u]      = a == u ? c : a;
             }
         }
     }
@@ -117,7 +118,7 @@ std::vector<double> single_source_dijkstra_path_length(const Graph &g, const int
 }
 
 std::vector<std::vector<double>> all_pairs_dijkstra_path_length(const Graph &g,
-                                                                const std::string &weight,
+                                                                const std::string_view weight,
                                                                 const Disjunction disjunction) {
     const auto w = g.edge_values(weight);
     const auto b = detail::to_boost(g);

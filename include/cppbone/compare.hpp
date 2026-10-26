@@ -9,6 +9,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -57,14 +58,14 @@ public:
     /// properties_progression().
     /// @param name Column name.
     /// @param property Function of (original network, extracted backbone).
-    void add_property(const std::string &name, Property property) {
+    void add_property(std::string_view name, Property property) {
         props_.emplace_back(name, std::move(property));
     }
 
     /// @brief Adds a distribution for distribution_ks_statistic().
     /// @param name Column name.
     /// @param d Function returning the sample of a graph.
-    void add_distribution(const std::string &name, Distribution d) {
+    void add_distribution(std::string_view name, Distribution d) {
         dists_.emplace_back(name, std::move(d));
     }
 

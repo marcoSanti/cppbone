@@ -3,9 +3,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <numeric>
+#include <ranges>
 
 #include <boost/pending/disjoint_sets.hpp>
 
@@ -16,39 +18,32 @@ namespace cppbone {
 Backbone doubly_stochastic(const Graph &data) {
     // The Python version works on nx.to_pandas_edgelist rows, so edge orientation follows
     // Graph::edges().
-    auto rows      = data.edges();
-    auto label_cmp = [](const std::string &a, const std::string &b) { return label_less(a, b); };
+    const auto rows = data.edges();
+    auto label_cmp  = [](const std::string &a, const std::string &b) { return label_less(a, b); };
     std::map<std::string, int, decltype(label_cmp)> src(label_cmp), dst(label_cmp);
     for (const auto &e : rows) {
         src[data.label(e.u)], dst[data.label(e.v)];
     }
-    int i0 = 0;
-    for (auto &[_, v] : src) {
-        v = i0++;
+    // number the labels in sorted order
+    for (auto *index : {&src, &dst}) {
+        for (int i = 0; auto &position : *index | std::views::values) {
+            position = i++;
+        }
     }
-    i0 = 0;
-    for (auto &[_, v] : dst) {
-        v = i0++;
-    }
-    std::vector<std::string> src_labels, dst_labels;
-    for (auto &[k, _] : src) {
-        src_labels.push_back(k);
-    }
-    for (auto &[k, _] : dst) {
-        dst_labels.push_back(k);
-    }
+    const auto src_labels = src | std::views::keys | std::ranges::to<std::vector>();
+    const auto dst_labels = dst | std::views::keys | std::ranges::to<std::vector>();
 
     // pivot_table(values="weight", index="source", columns="target", aggfunc="sum", fill_value=0) +
     // .0001
-    size_t R = src.size(), C = dst.size();
-    std::vector table(R, std::vector<double>(C, 0));
+    const size_t R = src.size(), C = dst.size();
+    detail::DenseMatrix table(R, C);
     for (const auto &[u, v, id] : rows) {
-        table[src[data.label(u)]][dst[data.label(v)]] += data.get(id, "weight");
+        table[src[data.label(u)], dst[data.label(v)]] += data.get(id, "weight");
     }
-    int rows_n = static_cast<int>(R), cols_n = static_cast<int>(C);
+    const int rows_n = static_cast<int>(R), cols_n = static_cast<int>(C);
 #pragma omp parallel for schedule(static)
     for (int r = 0; r < rows_n; ++r) {
-        for (double &x : table[r]) {
+        for (double &x : table.row(r)) {
             x += .0001;
         }
     }
@@ -57,8 +52,10 @@ Backbone doubly_stochastic(const Graph &data) {
     auto row_sums = [&] {
         std::vector<double> s(R, 0);
 #pragma omp parallel for schedule(static)
-        for (int r = 0; r < rows_n; ++r)
-            s[r] = std::accumulate(table[r].begin(), table[r].end(), 0.0);
+        for (int r = 0; r < rows_n; ++r) {
+            const auto row = table.row(r);
+            s[r]           = std::accumulate(row.begin(), row.end(), 0.0);
+        }
         return s;
     };
     auto stddev = [](const std::vector<double> &v) {
@@ -74,7 +71,7 @@ Backbone doubly_stochastic(const Graph &data) {
     while (stddev(rs) > 1e-12) {
 #pragma omp parallel for schedule(static)
         for (int r = 0; r < rows_n; ++r) {
-            for (double &x : table[r]) {
+            for (double &x : table.row(r)) {
                 x /= rs[r];
             }
         }
@@ -82,32 +79,30 @@ Backbone doubly_stochastic(const Graph &data) {
         // are exact.
         std::vector<double> cs(C, 0);
         constexpr int block = 512;
-        int blocks          = (cols_n + block - 1) / block;
+        const int blocks    = (cols_n + block - 1) / block;
 #pragma omp parallel for schedule(dynamic)
         for (int bi = 0; bi < blocks; ++bi) {
-            int c0 = bi * block, c1 = std::min(cols_n, c0 + block);
+            const int c0 = bi * block, c1 = std::min(cols_n, c0 + block);
             for (int r = 0; r < rows_n; ++r) {
                 for (int c = c0; c < c1; ++c) {
-                    cs[c] += table[r][c];
+                    cs[c] += table[r, c];
                 }
             }
         }
 #pragma omp parallel for schedule(static)
         for (int r = 0; r < rows_n; ++r) {
             for (int c = 0; c < cols_n; ++c) {
-                table[r][c] /= cs[c];
+                table[r, c] /= cs[c];
             }
         }
         rs = row_sums();
         if (++attempts > 1000) {
             std::cerr << "RuntimeWarning: Matrix could not be reduced to doubly stochastic. See "
                          "Sec. 3 of Sinkhorn 1964\n";
-            return {Graph{},
-                    "Doubly Stochastic Filter",
-                    "score",
-                    false,
-                    {boolean_filter, threshold_filter, fraction_filter},
-                    FilterOn::Edges};
+            return {.graph         = {},
+                    .method_name   = "Doubly Stochastic Filter",
+                    .property_name = "score",
+                    .filters       = {boolean_filter, threshold_filter, fraction_filter}};
         }
     }
 
@@ -125,13 +120,12 @@ Backbone doubly_stochastic(const Graph &data) {
     std::vector<Row> melted;
     for (size_t c = 0; c < C; ++c) {
         for (size_t r = 0; r < R; ++r) {
-            if (label_less(src_labels[r], dst_labels[c]) && table[r][c] > 0) {
-                melted.push_back({src_labels[r], dst_labels[c], table[r][c], 0});
+            if (label_less(src_labels[r], dst_labels[c]) && table[r, c] > 0) {
+                melted.push_back({src_labels[r], dst_labels[c], table[r, c], 0});
             }
         }
     }
-    std::stable_sort(melted.begin(), melted.end(),
-                     [](const Row &a, const Row &b) { return a.value > b.value; });
+    std::ranges::stable_sort(melted, std::greater<>(), &Row::value);
     std::vector<Row> merged;
     for (auto &r : melted) {
         if (auto it = weight_of.find({r.source, r.target}); it != weight_of.end()) {
@@ -143,10 +137,10 @@ Backbone doubly_stochastic(const Graph &data) {
     // table.
     std::map<std::string, int> ids;
     for (const auto &r : merged) {
-        ids.emplace(r.source, static_cast<int>(ids.size())),
-            ids.emplace(r.target, static_cast<int>(ids.size()));
+        ids.emplace(r.source, static_cast<int>(ids.size()));
+        ids.emplace(r.target, static_cast<int>(ids.size()));
     }
-    int doubly_nodes = static_cast<int>(ids.size());
+    const int doubly_nodes = static_cast<int>(ids.size());
     std::vector<int> rank(doubly_nodes), parent(doubly_nodes);
     boost::disjoint_sets sets(rank.data(), parent.data());
     for (int x = 0; x < doubly_nodes; ++x) {
@@ -158,14 +152,14 @@ Backbone doubly_stochastic(const Graph &data) {
         if (i == merged.size()) {
             break;
         }
-        int a = ids[merged[i].source], b = ids[merged[i].target];
-        for (int x : {a, b}) {
+        const int a = ids[merged[i].source], b = ids[merged[i].target];
+        for (const int x : {a, b}) {
             if (!present[x]) {
                 present[x] = true, ++nodes, ++components;
             }
         }
-        int rb = sets.find_set(b);
-        if (int ra = sets.find_set(a); ra != rb) {
+        const int rb = sets.find_set(b);
+        if (const int ra = sets.find_set(a); ra != rb) {
             sets.link(ra, rb), --components;
         }
         merged[i].in_backbone = true;
@@ -178,12 +172,10 @@ Backbone doubly_stochastic(const Graph &data) {
                        {{"weight", weight}, {"score", value}, {"in_backbone", in_backbone}});
         }
     }
-    return {std::move(g),
-            "Doubly Stochastic Filter",
-            "score",
-            false,
-            {boolean_filter, threshold_filter, fraction_filter},
-            FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "Doubly Stochastic Filter",
+            .property_name = "score",
+            .filters       = {boolean_filter, threshold_filter, fraction_filter}};
 }
 
 } // namespace cppbone

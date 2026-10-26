@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ostream>
+#include <ranges>
 #include <stdexcept>
 
 #include "cppbone/cppbone.hpp"
@@ -18,9 +19,9 @@ void Table::to_csv(std::ostream &out) const {
         out << ',' << c;
     }
     out << '\n';
-    for (size_t r = 0; r < index.size(); ++r) {
-        out << index[r];
-        for (const double v : data[r]) {
+    for (const auto &[label, row] : std::views::zip(index, data)) {
+        out << label;
+        for (const double v : row) {
             out << ',' << format_double(v);
         }
         out << '\n';
@@ -52,23 +53,18 @@ Graph Compare::extract(const size_t i, const double value) const {
 
 Table Compare::properties() {
     need_values();
+    const auto measure = [&](const Graph &b) {
+        return props_ | std::views::values |
+               std::views::transform([&](const Property &p) { return p(network_, b); }) |
+               std::ranges::to<std::vector>();
+    };
     Table t;
     t.index.emplace_back("Original");
-    for (const auto &b : backbones_) {
-        t.index.push_back(b.method_name);
-    }
-    for (const auto &[fst, _] : props_) {
-        t.columns.push_back(fst);
-    }
-    t.data.assign(t.index.size(), std::vector<double>(props_.size()));
-    for (size_t j = 0; j < props_.size(); ++j) {
-        t.data[0][j] = props_[j].second(network_, network_);
-    }
+    t.index.append_range(backbones_ | std::views::transform(&Backbone::method_name));
+    t.columns = props_ | std::views::keys | std::ranges::to<std::vector>();
+    t.data.push_back(measure(network_));
     for (size_t i = 0; i < backbones_.size(); ++i) {
-        Graph b = extract(i, filter_values_[i]);
-        for (size_t j = 0; j < props_.size(); ++j) {
-            t.data[i + 1][j] = props_[j].second(network_, b);
-        }
+        t.data.push_back(measure(extract(i, filter_values_[i])));
     }
     return t;
 }
@@ -81,23 +77,22 @@ std::vector<std::pair<std::string, Table>> Compare::properties_progression() {
         throw std::invalid_argument("Please enter the filter values.");
     }
     std::vector<std::pair<std::string, Table>> res;
-    for (const auto &[fst, _] : props_) {
-        Table t;
-        t.index_name = value_name_;
-        for (const auto &b : backbones_) {
-            t.columns.push_back(b.method_name);
-        }
-        res.emplace_back(fst, t);
+    const auto methods =
+        backbones_ | std::views::transform(&Backbone::method_name) | std::ranges::to<std::vector>();
+    for (const auto &name : props_ | std::views::keys) {
+        res.emplace_back(
+            name, Table{.index_name = value_name_, .index = {}, .columns = methods, .data = {}});
     }
     for (const double value : filter_values_) {
-        for (auto &[_, snd] : res) {
-            snd.index.push_back(format_double(value));
-            snd.data.emplace_back();
+        for (auto &table : res | std::views::values) {
+            table.index.push_back(format_double(value));
+            table.data.emplace_back();
         }
         for (size_t i = 0; i < backbones_.size(); ++i) {
-            Graph b = extract(i, value);
-            for (size_t j = 0; j < props_.size(); ++j) {
-                res[j].second.data.back().push_back(props_[j].second(network_, b));
+            const Graph b = extract(i, value);
+            for (auto &&[table, prop] :
+                 std::views::zip(res | std::views::values, props_ | std::views::values)) {
+                table.data.back().push_back(prop(network_, b));
             }
         }
     }
@@ -109,11 +104,10 @@ std::vector<std::pair<std::string, Table>> Compare::properties_progression() {
 /// @param g Graph to intersect with.
 /// @return The nodes and edges of acc that are also in g, with acc's attributes.
 static Graph intersect(const Graph &acc, const Graph &g) {
-    std::vector<bool> keep(acc.number_of_nodes());
-    for (int u = 0; u < acc.number_of_nodes(); ++u) {
-        keep[u] = g.node(acc.label(u)) >= 0;
-    }
-    Graph out = acc.subgraph(keep);
+    Graph out =
+        acc.subgraph(acc.nodes() |
+                     std::views::transform([&](const int u) { return g.node(acc.label(u)) >= 0; }) |
+                     std::ranges::to<std::vector<bool>>());
     for (const auto &[u, v, id] : out.edges()) {
         const int b = g.node(out.label(v));
         if (const int a = g.node(out.label(u)); !g.has_edge(a, b)) {
@@ -127,11 +121,9 @@ static Graph intersect(const Graph &acc, const Graph &g) {
 /// @param g Graph.
 /// @return The subgraph on the nodes of degree > 0.
 static Graph drop_isolates(const Graph &g) {
-    std::vector<bool> keep(g.number_of_nodes());
-    for (int u = 0; u < g.number_of_nodes(); ++u) {
-        keep[u] = g.degree(u) > 0;
-    }
-    return g.subgraph(keep);
+    return g.subgraph(g.nodes() |
+                      std::views::transform([&](const int u) { return g.degree(u) > 0; }) |
+                      std::ranges::to<std::vector<bool>>());
 }
 
 Compare::KsResult Compare::distribution_ks_statistic(bool increasing, std::vector<bool> consent) {
@@ -139,7 +131,7 @@ Compare::KsResult Compare::distribution_ks_statistic(bool increasing, std::vecto
     if (consent.empty()) {
         consent.assign(backbones_.size(), false);
     }
-    const bool any = std::find(consent.begin(), consent.end(), true) != consent.end();
+    const bool any = std::ranges::contains(consent, true);
 
     std::vector<Graph> extracted;
     std::optional<Graph> consensual;
@@ -155,9 +147,8 @@ Compare::KsResult Compare::distribution_ks_statistic(bool increasing, std::vecto
 
     KsResult res;
     res.ks_statistics.index_name = "";
-    for (const auto &b : backbones_) {
-        res.ks_statistics.index.push_back(b.method_name);
-    }
+    res.ks_statistics.index =
+        backbones_ | std::views::transform(&Backbone::method_name) | std::ranges::to<std::vector>();
     if (any) {
         res.ks_statistics.index.emplace_back("Consensual Backbone");
     }
@@ -198,8 +189,8 @@ double ks_statistic(std::vector<double> a, std::vector<double> b) {
     if (a.empty() || b.empty()) {
         return NaN;
     }
-    std::sort(a.begin(), a.end());
-    std::sort(b.begin(), b.end());
+    std::ranges::sort(a);
+    std::ranges::sort(b);
     double d = 0;
     size_t i = 0, j = 0;
     while (i < a.size() && j < b.size()) {

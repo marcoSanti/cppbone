@@ -3,6 +3,7 @@
 /// test.
 
 #include <algorithm>
+#include <functional>
 
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/boyer_myrvold_planar_test.hpp>
@@ -23,28 +24,30 @@ Backbone pmfg(const Graph &data) {
         g.set(e.id, "in_backbone", false);
     }
     const auto w = g.edge_values("weight", NaN);
-    std::stable_sort(rows.begin(), rows.end(),
-                     [&](const EdgeRef &a, const EdgeRef &b) { return w[a.id] > w[b.id]; });
+    std::ranges::stable_sort(rows, std::greater<>(), [&](const EdgeRef &e) { return w[e.id]; });
     // The growing backbone, on the input's node indices. Self-loops never affect planarity, so they
     // are only counted, not added to the graph that is tested.
     using Planar = boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS>;
-    Planar backbone(g.number_of_nodes());
+    const int n  = g.number_of_nodes();
+    Planar backbone(n);
     int kept = 0;
     for (const auto &[u, v, id] : rows) {
         if (u != v) {
-            auto [e, added] = boost::add_edge(u, v, backbone);
+            const auto [e, added] = boost::add_edge(u, v, backbone);
             if (!boost::boyer_myrvold_planarity_test(backbone)) {
                 boost::remove_edge(e, backbone);
                 continue;
             }
         }
         g.set(id, "in_backbone", true);
-        if (++kept == 3 * (g.number_of_nodes() - 2)) {
+        if (++kept == 3 * (n - 2)) {
             break;
         }
     }
-    return {std::move(g),   "Planar Maximally Filtered Graph", "weight", false, {boolean_filter},
-            FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "Planar Maximally Filtered Graph",
+            .property_name = "weight",
+            .filters       = {boolean_filter}};
 }
 
 } // namespace cppbone

@@ -15,7 +15,7 @@ Backbone plam(const Graph &data) {
 #pragma omp parallel for schedule(dynamic, 256)
     for (int node = 0; node < n; ++node) {
         double max_weight = -INF;
-        for (auto [v, id] : g.adj(node)) {
+        for (const auto [v, id] : g.adj(node)) {
             if (w[id] > max_weight) {
                 max_weight = w[id], max_edge[node] = id;
             }
@@ -31,8 +31,10 @@ Backbone plam(const Graph &data) {
     for (int i = 0; i < m; ++i) {
         g.set(edges[i].id, "in_backbone", keep[edges[i].id] != 0);
     }
-    return {std::move(g), "Primary Linkage Analysis", "weight",
-            false,        {boolean_filter},           FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "Primary Linkage Analysis",
+            .property_name = "weight",
+            .filters       = {boolean_filter}};
 }
 
 } // namespace cppbone

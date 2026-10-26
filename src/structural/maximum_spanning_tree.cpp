@@ -29,8 +29,10 @@ Backbone maximum_spanning_tree(const Graph &data) {
     for (const auto &e : tree) {
         g.set(edge_id[e], "in_backbone", true);
     }
-    return {std::move(g), "Maximum Spanning Tree", "weight",
-            false,        {boolean_filter},        FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "Maximum Spanning Tree",
+            .property_name = "weight",
+            .filters       = {boolean_filter}};
 }
 
 } // namespace cppbone

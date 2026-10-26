@@ -22,9 +22,10 @@ Backbone distance_backbone(const Graph &data, bool metric) {
     for (const auto &[u, v, id] : g.edges()) {
         g.set(id, "in_backbone", b.has_edge(u, v)); // same node ids: b is a copy
     }
-    return {std::move(g),     metric ? "Metric Distance Filter" : "Ultrametric Distance Filter",
-            "distance",       false,
-            {boolean_filter}, FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = metric ? "Metric Distance Filter" : "Ultrametric Distance Filter",
+            .property_name = "distance",
+            .filters       = {boolean_filter}};
 }
 
 Backbone metric_distance_backbone(const Graph &data) { return distance_backbone(data, true); }

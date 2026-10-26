@@ -12,15 +12,17 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <functional>
-#include <iomanip>
+#include <format>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <optional>
+#include <print>
+#include <ranges>
 #include <set>
-#include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "cppbone/cppbone.hpp"
@@ -43,9 +45,9 @@ struct Table {
 /// @param a One label.
 /// @param b The other label.
 /// @return "a|b" with the smaller label first.
-std::string pair_key(std::string a, std::string b) {
-    if (b < a) std::swap(a, b);
-    return a + "|" + b;
+std::string pair_key(const std::string& a, const std::string& b) {
+    const auto [lo, hi] = std::minmax(a, b);
+    return std::format("{}|{}", lo, hi);
 }
 
 /// @brief Edge attributes as a table.
@@ -54,11 +56,10 @@ std::string pair_key(std::string a, std::string b) {
 /// @return One row per edge.
 Table edge_table(const Graph& g, const std::vector<std::string>& cols) {
     Table t{cols, {}};
-    for (const auto& e : g.edges()) {
-        std::vector<double> row;
-        for (const auto& c : cols) row.push_back(g.get(e.id, c));
-        t.rows[pair_key(g.label(e.u), g.label(e.v))] = row;
-    }
+    for (const auto& e : g.edges())
+        t.rows[pair_key(g.label(e.u), g.label(e.v))] =
+            cols | std::views::transform([&](const std::string& c) { return g.get(e.id, c); }) |
+            std::ranges::to<std::vector>();
     return t;
 }
 
@@ -68,11 +69,9 @@ Table edge_table(const Graph& g, const std::vector<std::string>& cols) {
 /// @return One row per node.
 Table node_table(const Graph& g, const std::vector<std::string>& cols) {
     Table t{cols, {}};
-    for (int u = 0; u < g.number_of_nodes(); ++u) {
-        std::vector<double> row;
-        for (const auto& c : cols) row.push_back(g.node_get(u, c));
-        t.rows[g.label(u)] = row;
-    }
+    for (const int u : g.nodes())
+        t.rows[g.label(u)] = cols | std::views::transform([&](const std::string& c) { return g.node_get(u, c); }) |
+                             std::ranges::to<std::vector>();
     return t;
 }
 
@@ -82,7 +81,7 @@ Table node_table(const Graph& g, const std::vector<std::string>& cols) {
 Table graph_table(const Graph& g) {
     Table t;
     for (const auto& e : g.edges()) t.rows[pair_key(g.label(e.u), g.label(e.v))] = {};
-    for (int u = 0; u < g.number_of_nodes(); ++u) t.rows["#" + g.label(u)] = {};
+    for (const int u : g.nodes()) t.rows["#" + g.label(u)] = {};
     return t;
 }
 
@@ -92,7 +91,7 @@ Table graph_table(const Graph& g) {
 /// @param out Table to fill; its columns are set from `in`.
 void add_compare_table(const cppbone::Table& in, const std::string& prefix, Table& out) {
     out.cols = in.columns;
-    for (size_t r = 0; r < in.index.size(); ++r) out.rows[prefix + in.index[r]] = in.data[r];
+    for (const auto& [label, row] : std::views::zip(in.index, in.data)) out.rows[prefix + label] = row;
 }
 
 /// @brief Writes a table as canonical CSV: "key,<columns>", rows in key order, NaN as an empty field.
@@ -100,8 +99,8 @@ void add_compare_table(const cppbone::Table& in, const std::string& prefix, Tabl
 /// @param t Table.
 /// @throws std::runtime_error if the file cannot be written or a key contains a comma.
 void write_table(const fs::path& path, const Table& t) {
-    for (const auto& [key, row] : t.rows)
-        if (key.find(',') != std::string::npos) throw std::runtime_error("comma in key '" + key + "'");
+    for (const auto& key : t.rows | std::views::keys)
+        if (key.contains(',')) throw std::runtime_error(std::format("comma in key '{}'", key));
     std::ofstream out(path);
     if (!out) throw std::runtime_error("cannot write " + path.string());
     out << "key";
@@ -118,12 +117,10 @@ void write_table(const fs::path& path, const Table& t) {
 /// @param line Line.
 /// @return The fields, including a trailing empty one.
 std::vector<std::string> split(const std::string& line) {
-    std::vector<std::string> out;
-    std::string cell;
-    std::stringstream ss(line);
-    while (std::getline(ss, cell, ',')) out.push_back(cell);
-    if (!line.empty() && line.back() == ',') out.emplace_back();
-    return out;
+    if (line.empty()) return {};
+    return line | std::views::split(',') |
+           std::views::transform([](auto cell) { return std::string(std::string_view(cell)); }) |
+           std::ranges::to<std::vector>();
 }
 
 /// @brief Reads a canonical CSV written by write_table or python_baseline.py.
@@ -141,10 +138,12 @@ std::optional<Table> read_table(const fs::path& path) {
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         auto cells = split(line);
-        if (cells.size() != t.cols.size() + 1) throw std::runtime_error("bad row in " + path.string() + ": " + line);
-        std::vector<double> row;
-        for (size_t i = 1; i < cells.size(); ++i) row.push_back(cells[i].empty() ? NaN : std::strtod(cells[i].c_str(), nullptr));
-        t.rows[cells[0]] = row;
+        if (cells.size() != t.cols.size() + 1)
+            throw std::runtime_error(std::format("bad row in {}: {}", path.string(), line));
+        t.rows[cells[0]] = cells | std::views::drop(1) | std::views::transform([](const std::string& c) {
+                               return c.empty() ? NaN : std::strtod(c.c_str(), nullptr);
+                           }) |
+                           std::ranges::to<std::vector>();
     }
     return t;
 }
@@ -255,11 +254,11 @@ double rel_diff(double a, double b) {
 Diff compare(const Table& got, const Table& want) {
     Diff d;
     for (const auto& c : got.cols)
-        if (std::find(want.cols.begin(), want.cols.end(), c) == want.cols.end()) d.columns += " +" + c;
+        if (!std::ranges::contains(want.cols, c)) d.columns += " +" + c;
     for (const auto& c : want.cols)
-        if (std::find(got.cols.begin(), got.cols.end(), c) == got.cols.end()) d.columns += " -" + c;
-    for (const auto& [key, row] : got.rows)
-        if (!want.rows.count(key)) ++d.keys;
+        if (!std::ranges::contains(got.cols, c)) d.columns += " -" + c;
+    for (const auto& key : got.rows | std::views::keys)
+        if (!want.rows.contains(key)) ++d.keys;
     for (const auto& [key, row] : want.rows) {
         auto it = got.rows.find(key);
         if (it == got.rows.end()) {
@@ -267,18 +266,18 @@ Diff compare(const Table& got, const Table& want) {
             continue;
         }
         for (size_t j = 0; j < want.cols.size(); ++j) {
-            auto c = std::find(got.cols.begin(), got.cols.end(), want.cols[j]);
+            const auto c = std::ranges::find(got.cols, want.cols[j]);
             if (c == got.cols.end()) continue;
             double a = it->second[c - got.cols.begin()], b = row[j];
             const std::string& name = want.cols[j];
-            if (name == "in_backbone" || name.rfind("is_", 0) == 0) {
+            if (name == "in_backbone" || name.starts_with("is_")) {
                 bool fa = !std::isnan(a) && a != 0, fb = !std::isnan(b) && b != 0;
                 d.flags += fa != fb;
             } else {
                 double r = rel_diff(a, b);
                 if (r > d.rel) {
                     d.rel = r;
-                    d.worst = key + " " + name + ": " + format_double(a) + " vs " + format_double(b);
+                    d.worst = std::format("{} {}: {} vs {}", key, name, format_double(a), format_double(b));
                 }
             }
         }
@@ -294,7 +293,7 @@ struct Cases {
     /// @brief Tells whether a case (or group of cases) is selected.
     /// @param name Case name or prefix.
     /// @return true if no filter is set or the name contains it.
-    bool wanted(const std::string& name) const { return only.empty() || name.find(only) != std::string::npos; }
+    bool wanted(const std::string& name) const { return only.empty() || name.contains(only); }
 
     /// @brief Adds a case if it is selected.
     /// @param name Case name (also the baseline file name, without ".csv").
@@ -319,13 +318,12 @@ Graph complete(int n) {
 /// @param n Number of nodes kept.
 /// @return The small distance graph.
 Graph small_distance_graph(const Graph& g, int n) {
-    std::vector<std::string> labels;
-    for (int u = 0; u < g.number_of_nodes(); ++u) labels.push_back(g.label(u));
-    std::sort(labels.begin(), labels.end());
-    std::set<std::string> chosen(labels.begin(), labels.begin() + std::min<size_t>(n, labels.size()));
-    std::vector<bool> keep(g.number_of_nodes());
-    for (int u = 0; u < g.number_of_nodes(); ++u) keep[u] = chosen.count(g.label(u)) > 0;
-    Graph s = g.subgraph(keep);
+    auto labels = g.nodes() | std::views::transform([&](const int u) { return g.label(u); }) |
+                  std::ranges::to<std::vector>();
+    std::ranges::sort(labels);
+    const auto chosen = labels | std::views::take(n) | std::ranges::to<std::set>();
+    Graph s = g.subgraph(g.nodes() | std::views::transform([&](const int u) { return chosen.contains(g.label(u)); }) |
+                         std::ranges::to<std::vector<bool>>());
     for (const auto& e : s.edges()) s.set(e.id, "distance", 1 / s.get(e.id, "weight"));
     return s;
 }
@@ -333,23 +331,19 @@ Graph small_distance_graph(const Graph& g, int n) {
 /// @brief The deterministic matrix used for the pairwise_proximity cases.
 /// @return 20 x 15 matrix with entries (7 i + 3 j) mod 5.
 Matrix proximity_input() {
-    Matrix m;
-    for (int i = 0; i < 20; ++i) {
-        m.emplace_back();
-        for (int j = 0; j < 15; ++j) m.back().push_back((i * 7 + j * 3) % 5);
-    }
-    return m;
+    return std::views::iota(0, 20) | std::views::transform([](const int i) {
+               return std::views::iota(0, 15) |
+                      std::views::transform([i](const int j) { return double((i * 7 + j * 3) % 5); }) |
+                      std::ranges::to<std::vector>();
+           }) |
+           std::ranges::to<Matrix>();
 }
 
 /// @brief Formats a matrix index pair as a sortable key.
 /// @param i Row.
 /// @param j Column.
 /// @return "ii|jj", zero-padded.
-std::string index_key(int i, int j) {
-    std::ostringstream s;
-    s << std::setw(2) << std::setfill('0') << i << '|' << std::setw(2) << std::setfill('0') << j;
-    return s.str();
-}
+std::string index_key(int i, int j) { return std::format("{:02}|{:02}", i, j); }
 
 /// @brief Computes every case.
 /// @param g Network.
@@ -407,7 +401,8 @@ void run_all(const Graph& g, const std::map<std::string, double>& thresholds, Ca
                 cases.add(prefix + ".boolean", graph_table(boolean_filter(b, 0, false)));
             } else if (f == threshold_filter) {
                 auto it = thresholds.find(name);
-                if (it == thresholds.end()) throw std::runtime_error("no threshold for " + name + " in thresholds.csv");
+                if (it == thresholds.end())
+                    throw std::runtime_error(std::format("no threshold for {} in thresholds.csv", name));
                 cases.add(prefix + ".threshold_" + format_double(it->second),
                           graph_table(threshold_filter(b, it->second, false)));
             } else if (f == fraction_filter) {
@@ -444,12 +439,11 @@ void run_all(const Graph& g, const std::map<std::string, double>& thresholds, Ca
             {"transitivity", transitivity},
         };
         Table t;
-        for (const auto& gr : graphs) t.cols.push_back(gr.first);
-        for (const auto& [pname, prop] : props) {
-            std::vector<double> row;
-            for (const auto& gr : graphs) row.push_back(prop(g, gr.second));
-            t.rows[pname] = row;
-        }
+        t.cols = graphs | std::views::keys | std::ranges::to<std::vector>();
+        for (const auto& [pname, prop] : props)
+            t.rows[pname] = graphs | std::views::values |
+                            std::views::transform([&](const Graph& x) { return prop(g, x); }) |
+                            std::ranges::to<std::vector>();
         cases.add("measures", t);
     }
 
@@ -457,12 +451,13 @@ void run_all(const Graph& g, const std::map<std::string, double>& thresholds, Ca
     {
         Table t{{"degree", "weighted_degree"}, {}};
         auto d = degrees(g), w = degrees(g, "weight");
-        for (int u = 0; u < g.number_of_nodes(); ++u) t.rows[g.label(u)] = {d[u], w[u]};
+        for (const int u : g.nodes()) t.rows[g.label(u)] = {d[u], w[u]};
         cases.add("utils.degrees", t);
         for (bool increasing : {true, false}) {
             Table c{{"x", "y"}, {}};
             auto pts = cumulative_dist(d, increasing);
-            for (size_t i = 0; i < pts.size(); ++i) c.rows[index_key((int)i / 100, (int)i % 100)] = {pts[i].first, pts[i].second};
+            for (const auto& [i, pt] : std::views::zip(std::views::iota(0), pts))
+                c.rows[index_key(i / 100, i % 100)] = {pt.first, pt.second};
             cases.add(std::string("utils.cumulative_dist_") + (increasing ? "increasing" : "decreasing"), c);
         }
     }
@@ -535,8 +530,8 @@ void run_all(const Graph& g, const std::map<std::string, double>& thresholds, Ca
         for (auto [name, disj] : {std::pair{"sum", Disjunction::Sum}, std::pair{"max", Disjunction::Max}}) {
             auto d = all_pairs_dijkstra_path_length(small, "distance", disj);
             Table t{{"length"}, {}};
-            for (int u = 0; u < small.number_of_nodes(); ++u)
-                for (int v = 0; v < small.number_of_nodes(); ++v)
+            for (const int u : small.nodes())
+                for (const int v : small.nodes())
                     if (d[u][v] < INF) t.rows[small.label(u) + ">" + small.label(v)] = {d[u][v]};
             cases.add(std::string("distanceclosure.all_pairs_dijkstra_") + name, t);
         }
@@ -582,18 +577,19 @@ void run_all(const Graph& g, const std::map<std::string, double>& thresholds, Ca
         t.rows["is_planar(mst)"] = {double(is_planar(boolean_filter(maximum_spanning_tree(g), 0, false)))};
         for (auto [k, n, p] : {std::tuple{2., 10., 0.3}, {0., 10., 0.5}, {10., 10., 0.5}, {5., 100., 0.01},
                                {100., 620000000., 3e-7}, {1., 620000000., 1e-9}, {3000., 10000., 0.25}}) {
-            std::string args = "(" + format_double(k) + ";" + format_double(n) + ";" + format_double(p) + ")";
+            const auto args = std::format("({};{};{})", format_double(k), format_double(n), format_double(p));
             t.rows["binom_cdf" + args] = {binom_cdf(k, n, p)};
             t.rows["binom_sf" + args] = {binom_sf(k, n, p)};
         }
         // compute_pvalue on the first edges in key order, from the endpoint with the smaller label
         std::vector<std::pair<std::string, int>> edge_keys;
         for (const auto& e : g.edges()) edge_keys.emplace_back(pair_key(g.label(e.u), g.label(e.v)), e.id);
-        std::sort(edge_keys.begin(), edge_keys.end());
+        std::ranges::sort(edge_keys);
         for (size_t i = 0; i < std::min<size_t>(5, edge_keys.size()); ++i) {
             auto [u, v] = g.ends(edge_keys[i].second);
             int node = g.label(u) < g.label(v) ? u : v;
-            t.rows["compute_pvalue(" + edge_keys[i].first + ")"] = {compute_pvalue(g, node, g.get(edge_keys[i].second, "weight"))};
+            t.rows[std::format("compute_pvalue({})", edge_keys[i].first)] = {
+                compute_pvalue(g, node, g.get(edge_keys[i].second, "weight"))};
         }
         cases.add("misc.scalars", t);
     }
@@ -617,8 +613,8 @@ int main(int argc, char** argv) {
         else pos.push_back(args[i]);
     }
     if (pos.size() != 2) {
-        std::cerr << "usage: " << argv[0]
-                  << " <edges.csv> <regression dir> [--write-cpp-baseline] [--only SUBSTRING] [--verbose]\n";
+        std::println(stderr, "usage: {} <edges.csv> <regression dir> [--write-cpp-baseline] [--only SUBSTRING] [--verbose]",
+                     argv[0]);
         return 2;
     }
     fs::path dir = pos[1];
@@ -631,7 +627,7 @@ int main(int argc, char** argv) {
         if (write) {
             fs::create_directories(dir / "baseline" / "cpp");
             for (const auto& [name, t] : cases.list) write_table(dir / "baseline" / "cpp" / (name + ".csv"), t);
-            std::cout << "wrote " << cases.list.size() << " cases to " << (dir / "baseline" / "cpp").string() << '\n';
+            std::println("wrote {} cases to {}", cases.list.size(), (dir / "baseline" / "cpp").string());
             return 0;
         }
 
@@ -639,7 +635,7 @@ int main(int argc, char** argv) {
         // baseline that is not identical, saying how it differs.
         auto rules = read_tolerances(dir / "tolerances.csv");
         size_t width = 0;
-        for (const auto& c : cases.list) width = std::max(width, c.first.size());
+        for (const auto& name : cases.list | std::views::keys) width = std::max(width, name.size());
         int failures = 0;
         std::map<std::string, std::map<std::string, int>> tally;  // baseline -> verdict -> cases
         for (const auto& [name, t] : cases.list) {
@@ -660,34 +656,29 @@ int main(int argc, char** argv) {
                     verdict = ok ? (identical ? "identical" : "ok") : "FAIL";
                     failed |= !ok;
                     if (!identical) {
-                        std::ostringstream s;
-                        s << "\n         " << base << ": ";
-                        if (!d.columns.empty()) s << "columns" << d.columns << "; ";
-                        if (d.keys) s << d.keys << " keys on one side only; ";
-                        if (d.flags) s << d.flags << " flags differ; ";
-                        if (d.rel > 0) s << "max rel diff " << std::setprecision(2) << d.rel << " at " << d.worst;
-                        details += s.str();
+                        details += std::format("\n         {}: ", base);
+                        if (!d.columns.empty()) details += std::format("columns{}; ", d.columns);
+                        if (d.keys) details += std::format("{} keys on one side only; ", d.keys);
+                        if (d.flags) details += std::format("{} flags differ; ", d.flags);
+                        if (d.rel > 0) details += std::format("max rel diff {:.2g} at {}", d.rel, d.worst);
                     }
                 }
                 ++tally[base][verdict];
-                std::ostringstream v;
-                v << "   " << base << ": " << std::left << std::setw(base == "cpp" ? 9 : 0) << verdict;
-                verdicts += v.str();
+                verdicts += std::format("   {}: {:<{}}", base, verdict, base == "cpp" ? 9 : 0);
             }
             failures += failed;
             if (failed || verbose)
-                std::cout << (failed ? "[FAIL] " : "[ ok ] ") << std::left << std::setw((int)width) << name << verdicts
-                          << details << '\n';
+                std::println("{}{:<{}}{}{}", failed ? "[FAIL] " : "[ ok ] ", name, width, verdicts, details);
         }
-        std::cout << '\n' << cases.list.size() << " cases, " << failures << " failed\n";
+        std::println("\n{} cases, {} failed", cases.list.size(), failures);
         for (const auto& [base, counts] : tally) {
-            std::cout << "  vs " << base << ":";
-            for (const auto& [verdict, n] : counts) std::cout << ' ' << n << ' ' << verdict;
-            std::cout << '\n';
+            std::print("  vs {}:", base);
+            for (const auto& [verdict, n] : counts) std::print(" {} {}", n, verdict);
+            std::println("");
         }
         return failures ? 1 : 0;
     } catch (const std::exception& e) {
-        std::cerr << "error: " << e.what() << '\n';
+        std::println(stderr, "error: {}", e.what());
         return 2;
     }
 }

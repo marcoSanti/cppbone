@@ -4,16 +4,16 @@
 ///        distanceclosure/closure.py).
 
 #include <cmath>
-#include <numeric>
-#include <set>
 #include <stdexcept>
+#include <string>
 
 #include "cppbone/cppbone.hpp"
 
 namespace cppbone {
 
-Graph distance_closure(const Graph &d, const std::string &kind, const std::string &algorithm,
-                       const std::string &weight, bool only_backbone) {
+Graph distance_closure(const Graph &d, const std::string_view kind,
+                       const std::string_view algorithm, const std::string_view weight,
+                       const bool only_backbone) {
     if (kind != "metric" && kind != "ultrametric") {
         throw std::invalid_argument(
             "Metric not found for this algorithm. Try 'metric' or 'ultrametric',");
@@ -30,19 +30,19 @@ Graph distance_closure(const Graph &d, const std::string &kind, const std::strin
     const auto lengths = all_pairs_dijkstra_path_length(
         d, weight, kind == "metric" ? Disjunction::Sum : Disjunction::Max);
 
-    std::string kind_distance = kind + "_distance";
-    const std::string is_kind = "is_" + kind;
-    std::set<std::pair<int, int>> edges_seen;
+    const std::string kind_distance = std::string(kind) + "_distance";
+    const std::string is_kind       = "is_" + std::string(kind);
 
-    for (int u = 0; u < d.number_of_nodes(); ++u) {
-        for (int v = 0; v < d.number_of_nodes(); ++v) {
-            double length = lengths[u][v];
-            if (std::isinf(length) || u == v || !edges_seen.insert({u, v}).second) {
+    // Every ordered pair once; the reverse pair finds the edge added for the first one.
+    for (const int u : d.nodes()) {
+        for (const int v : d.nodes()) {
+            const double length = lengths[u][v];
+            if (std::isinf(length) || u == v) {
                 continue;
             }
             if (const int id = g.find_edge(u, v); id < 0) {
                 if (!only_backbone) {
-                    g.add_edge(u, v, {{weight, INF}, {kind_distance, length}});
+                    g.add_edge(u, v, {{std::string(weight), INF}, {kind_distance, length}});
                 }
             } else {
                 g.set(id, kind_distance, length);
@@ -53,8 +53,8 @@ Graph distance_closure(const Graph &d, const std::string &kind, const std::strin
     return g;
 }
 
-Graph s_values(const Graph &cm, const std::string &weight_distance,
-               const std::string &weight_metric_distance) {
+Graph s_values(const Graph &cm, const std::string_view weight_distance,
+               const std::string_view weight_metric_distance) {
     Graph g = cm;
     for (const auto &e : g.edges()) {
         const double metric = g.get(e.id, weight_metric_distance);
@@ -65,14 +65,14 @@ Graph s_values(const Graph &cm, const std::string &weight_distance,
     return g;
 }
 
-Graph b_values(const Graph &cm, const std::string &weight_distance,
-               const std::string &weight_metric_distance) {
+Graph b_values(const Graph &cm, const std::string_view weight_distance,
+               const std::string_view weight_metric_distance) {
     Graph g = cm;
     std::vector<double> mean_distance(g.number_of_nodes());
-    for (int k = 0; k < g.number_of_nodes(); ++k) {
+    for (const int k : g.nodes()) {
         double sum = 0;
         int count  = 0;
-        for (auto [v, id] : g.adj(k)) {
+        for (const auto [v, id] : g.adj(k)) {
             if (g.get(id, weight_distance) < INF) {
                 sum += g.get(id, weight_distance), ++count;
             }

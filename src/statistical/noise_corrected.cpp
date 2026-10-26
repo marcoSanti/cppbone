@@ -14,13 +14,7 @@ Backbone noise_corrected(const Graph &data, bool approximation) {
     for (const auto &e : edges) {
         n += g.get(e.id, "weight");
     }
-
-    const int nodes = g.number_of_nodes();
-    std::vector<double> strength(nodes);
-#pragma omp parallel for schedule(dynamic, 256)
-    for (int u = 0; u < nodes; ++u) {
-        strength[u] = g.degree(u, "weight");
-    }
+    const auto strength = detail::strengths(g, "weight");
 
     const int m = static_cast<int>(edges.size());
 #pragma omp parallel for schedule(dynamic, 1024)
@@ -55,12 +49,11 @@ Backbone noise_corrected(const Graph &data, bool approximation) {
             g.set(id, "score", score);
         }
     }
-    return {std::move(g),
-            "Noise Corrected Filter",
-            "p_value",
-            true,
-            {threshold_filter, fraction_filter},
-            FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "Noise Corrected Filter",
+            .property_name = "p_value",
+            .ascending     = true,
+            .filters       = {threshold_filter, fraction_filter}};
 }
 
 } // namespace cppbone

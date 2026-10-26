@@ -8,6 +8,9 @@ on:
 # does not have to download Boost or build OpenBLAS. Windows has neither: CMake fetches them, and the build
 # directories are cached between runs so that happens once per CMakeLists.txt change. ccache keeps compiled objects
 # between runs on Linux and macOS (Boost.Graph headers are slow to compile).
+#
+# The code is C++23 (std::print, std::ranges::to, std::views::zip, ...): GCC 14, Clang 19 / Xcode 16.3 or
+# MSVC 19.42. Ubuntu's default g++ is 13, so the Linux jobs select the g++-14 that ships on the runner image.
 
 jobs:
   cpp:
@@ -22,6 +25,9 @@ jobs:
       - name: Install Boost and OpenBLAS
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libboost-dev libopenblas-dev
+      - name: Use GCC 14 (C++23)
+        if: runner.os == 'Linux'
+        run: echo "CXX=g++-14" >> "$GITHUB_ENV"
       - name: Install Boost (LAPACK comes from Accelerate)
         if: runner.os == 'macOS'
         run: brew install boost
@@ -63,6 +69,9 @@ jobs:
       - name: Install Boost and OpenBLAS
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libboost-dev libopenblas-dev
+      - name: Use GCC 14 (C++23)
+        if: runner.os == 'Linux'
+        run: echo "CXX=g++-14" >> "$GITHUB_ENV"
       - name: Install Boost (LAPACK comes from Accelerate)
         if: runner.os == 'macOS'
         run: brew install boost
@@ -91,6 +100,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Boost and OpenBLAS
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libboost-dev libopenblas-dev
+      - name: Use GCC 14 (C++23)
+        run: echo "CXX=g++-14" >> "$GITHUB_ENV"
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:

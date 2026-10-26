@@ -3,19 +3,20 @@
 
 #include <algorithm>
 #include <iterator>
+#include <ranges>
 
 #include "../../include/cppbone/detail.hpp"
 
 namespace cppbone {
 
 double jaccard(std::vector<int> a, std::vector<int> b) {
-    std::sort(a.begin(), a.end());
-    a.erase(std::unique(a.begin(), a.end()), a.end());
-    std::sort(b.begin(), b.end());
-    b.erase(std::unique(b.begin(), b.end()), b.end());
+    for (auto *set : {&a, &b}) {
+        std::ranges::sort(*set);
+        set->erase(std::ranges::unique(*set).begin(), set->end());
+    }
     std::vector<int> inter, uni;
-    std::set_intersection(a.begin(), a.end(), b.begin(), b.end(), std::back_inserter(inter));
-    std::set_union(a.begin(), a.end(), b.begin(), b.end(), std::back_inserter(uni));
+    std::ranges::set_intersection(a, b, std::back_inserter(inter));
+    std::ranges::set_union(a, b, std::back_inserter(uni));
     return static_cast<double>(inter.size()) / uni.size();
 }
 
@@ -25,11 +26,9 @@ double jaccard(std::vector<int> a, std::vector<int> b) {
 /// @return The sorted node indices.
 static std::vector<int> get_neighbours(const Graph &g, const int node) {
     std::vector<int> out{node};
-    for (auto [v, id] : g.adj(node)) {
-        out.push_back(v);
-    }
-    std::sort(out.begin(), out.end());
-    out.erase(std::unique(out.begin(), out.end()), out.end());
+    out.append_range(g.adj(node) | std::views::transform(&Adjacent::node));
+    std::ranges::sort(out);
+    out.erase(std::ranges::unique(out).begin(), out.end());
     return out;
 }
 
@@ -60,12 +59,10 @@ Backbone gspar(const Graph &data) {
         }
         g.set(edges[i].id, "jaccard-sim", double(inter) / (a.size() + b.size() - inter));
     }
-    return {std::move(g),
-            "Global Sparsification",
-            "jaccard-sim",
-            false,
-            {threshold_filter, fraction_filter},
-            FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "Global Sparsification",
+            .property_name = "jaccard-sim",
+            .filters       = {threshold_filter, fraction_filter}};
 }
 
 } // namespace cppbone

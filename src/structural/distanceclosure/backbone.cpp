@@ -4,7 +4,8 @@
 ///
 /// Computes the shortest-path distance backbone of a weighted graph whose edges are distances.
 #include <algorithm>
-#include <numeric>
+#include <functional>
+#include <ranges>
 
 #include "../../../include/cppbone/boost_graph.hpp"
 #include "../../../include/cppbone/detail.hpp"
@@ -29,20 +30,13 @@ namespace cppbone {
 /// every removed
 ///        edge, in removal order.
 /// @return Copy of d without the redundant edges.
-static Graph
-compute_backbone(const Graph &d, const std::string &weight, Disjunction disjunction,
-                 std::vector<std::pair<std::pair<std::string, std::string>, double>> *s_values) {
-    Graph g     = d;
-    const int n = g.number_of_nodes();
-    std::vector<int> ordered(n);
-    std::iota(ordered.begin(), ordered.end(), 0);
-    std::vector<double> strength(n);
-#pragma omp parallel for schedule(static)
-    for (int u = 0; u < n; ++u) {
-        strength[u] = g.degree(u, weight);
-    }
-    std::stable_sort(ordered.begin(), ordered.end(),
-                     [&](const int a, const int b) { return strength[a] > strength[b]; });
+static Graph compute_backbone(const Graph &d, const std::string_view weight,
+                              const Disjunction disjunction, std::vector<Distortion> *s_values) {
+    Graph g             = d;
+    const int n         = g.number_of_nodes();
+    const auto strength = detail::strengths(g, weight);
+    auto ordered        = g.nodes() | std::ranges::to<std::vector>();
+    std::ranges::stable_sort(ordered, std::greater<>(), [&](const int u) { return strength[u]; });
 
     const auto w = g.edge_values(weight);
     const auto b = detail::to_boost(g);
@@ -64,7 +58,7 @@ compute_backbone(const Graph &d, const std::string &weight, Disjunction disjunct
                     auto &found   = shorter[i - b0];
                     found.clear();
                     double cutoff = -INF;
-                    for (auto [v, id] : g.adj(src)) {
+                    for (const auto [v, id] : g.adj(src)) {
                         if (!removed[id]) {
                             cutoff = std::max(cutoff, w[id]);
                         }
@@ -72,11 +66,11 @@ compute_backbone(const Graph &d, const std::string &weight, Disjunction disjunct
                     if (cutoff == -INF) {
                         return;
                     }
-                    detail::dijkstra(b, src, w, disjunction, sp, cutoff, &removed);
-                    const auto &adj = g.adj(src);
+                    detail::dijkstra(b, src, w, disjunction, sp, cutoff, removed);
+                    const auto adj = g.adj(src);
                     for (int k = 0; k < static_cast<int>(adj.size()); ++k) {
-                        if (!removed[adj[k].second] && sp.dist[adj[k].first] < w[adj[k].second]) {
-                            found.emplace_back(k, sp.dist[adj[k].first]);
+                        if (const auto [v, id] = adj[k]; !removed[id] && sp.dist[v] < w[id]) {
+                            found.emplace_back(k, sp.dist[v]);
                         }
                     }
                 });
@@ -86,8 +80,8 @@ compute_backbone(const Graph &d, const std::string &weight, Disjunction disjunct
 #pragma omp single
             for (int i = b0; i < b1; ++i) {
                 const int src = ordered[i];
-                for (auto [k, dist] : shorter[i - b0]) {
-                    auto [v, id] = g.adj(src)[k];
+                for (const auto [k, dist] : shorter[i - b0]) {
+                    const auto [v, id] = g.adj(src)[k];
                     if (removed[id]) {
                         continue; // removed earlier in this batch by its other endpoint
                     }
@@ -104,19 +98,19 @@ compute_backbone(const Graph &d, const std::string &weight, Disjunction disjunct
     return g;
 }
 
-Graph metric_backbone(const Graph &d, const std::string &weight) {
+Graph metric_backbone(const Graph &d, const std::string_view weight) {
     return compute_backbone(d, weight, Disjunction::Sum, nullptr);
 }
 
-Graph ultrametric_backbone(const Graph &d, const std::string &weight) {
+Graph ultrametric_backbone(const Graph &d, const std::string_view weight) {
     return compute_backbone(d, weight, Disjunction::Max, nullptr);
 }
 
-std::pair<Graph, std::vector<std::pair<std::pair<std::string, std::string>, double>>>
-metric_backbone_distortion(const Graph &d, const std::string &weight) {
-    std::vector<std::pair<std::pair<std::string, std::string>, double>> s;
+std::pair<Graph, std::vector<Distortion>>
+metric_backbone_distortion(const Graph &d, const std::string_view weight) {
+    std::vector<Distortion> s;
     Graph g = compute_backbone(d, weight, Disjunction::Sum, &s);
-    return {std::move(g), s};
+    return {std::move(g), std::move(s)};
 }
 
 } // namespace cppbone

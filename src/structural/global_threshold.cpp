@@ -6,8 +6,10 @@
 namespace cppbone {
 
 Backbone global_threshold(const Graph &data) {
-    return {data,  "Global Threshold Filter",           "weight",
-            false, {fraction_filter, threshold_filter}, FilterOn::Edges};
+    return {.graph         = data,
+            .method_name   = "Global Threshold Filter",
+            .property_name = "weight",
+            .filters       = {fraction_filter, threshold_filter}};
 }
 
 } // namespace cppbone

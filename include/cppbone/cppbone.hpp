@@ -8,7 +8,9 @@
 /// it comes from. Inputs are cppbone::Graph (use Graph::read_csv for a pandas-style edge list).
 
 #include <cstdint>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -46,7 +48,7 @@ int num_threads();
 /// @param data Input graph with a "weight" edge attribute.
 /// @param weight Attribute used for the node strength.
 /// @return Backbone on "p_value" (ascending), filtered with threshold_filter or fraction_filter.
-Backbone disparity(const Graph &data, const std::string &weight = "weight");
+Backbone disparity(const Graph &data, std::string_view weight = "weight");
 
 /// @brief Locally Adaptive Network Sparsification (lans.py).
 ///
@@ -231,7 +233,7 @@ bool is_planar(const Graph &g);
 /// @param weight Edge attribute used as the path length; "" counts hops.
 /// @return Betweenness indexed by edge id (size edge_capacity()).
 std::vector<double> edge_betweenness_centrality(const Graph &g, bool normalized,
-                                                const std::string &weight);
+                                                std::string_view weight);
 /// @}
 
 /// @name Hybrid methods (hybrid/)
@@ -269,7 +271,7 @@ enum class Disjunction {
 /// @return Distance of every node from source, INF when unreachable.
 /// @throws std::invalid_argument when a negative distance makes the paths contradictory.
 std::vector<double> single_source_dijkstra_path_length(const Graph &g, int source,
-                                                       const std::vector<double> &weight,
+                                                       std::span<const double> weight,
                                                        Disjunction disjunction  = Disjunction::Sum,
                                                        std::vector<int> *parent = nullptr);
 
@@ -279,7 +281,7 @@ std::vector<double> single_source_dijkstra_path_length(const Graph &g, int sourc
 /// @param disjunction How distances combine along a path.
 /// @return Dense matrix: result[u][v] is the distance from u to v, INF when unreachable.
 std::vector<std::vector<double>>
-all_pairs_dijkstra_path_length(const Graph &g, const std::string &weight = "weight",
+all_pairs_dijkstra_path_length(const Graph &g, std::string_view weight = "weight",
                                Disjunction disjunction = Disjunction::Sum);
 
 /// @brief Metric backbone (backbone.py): removes every edge that is not a shortest path between its
@@ -287,21 +289,24 @@ all_pairs_dijkstra_path_length(const Graph &g, const std::string &weight = "weig
 /// @param d Graph whose `weight` attribute holds distances.
 /// @param weight Distance attribute.
 /// @return Copy of d without the redundant edges.
-Graph metric_backbone(const Graph &d, const std::string &weight = "weight");
+Graph metric_backbone(const Graph &d, std::string_view weight = "weight");
 
 /// @brief Ultrametric backbone (backbone.py): like metric_backbone with minimax path lengths.
 /// @param d Graph whose `weight` attribute holds distances.
 /// @param weight Distance attribute.
 /// @return Copy of d without the redundant edges.
-Graph ultrametric_backbone(const Graph &d, const std::string &weight = "weight");
+Graph ultrametric_backbone(const Graph &d, std::string_view weight = "weight");
+
+/// @brief A removed edge's endpoint labels and its s-value (distance / shortest path).
+using Distortion = std::pair<std::pair<std::string, std::string>, double>;
 
 /// @brief Metric backbone and the distortion of the removed edges (backbone.py).
 /// @param d Graph whose `weight` attribute holds distances.
 /// @param weight Distance attribute.
 /// @return The backbone, and for every removed edge its endpoint labels and s-value (distance /
 /// shortest path).
-std::pair<Graph, std::vector<std::pair<std::pair<std::string, std::string>, double>>>
-metric_backbone_distortion(const Graph &d, const std::string &weight = "weight");
+std::pair<Graph, std::vector<Distortion>>
+metric_backbone_distortion(const Graph &d, std::string_view weight = "weight");
 
 /// @brief Transitive closure of a distance graph (closure.py).
 ///
@@ -315,17 +320,17 @@ metric_backbone_distortion(const Graph &d, const std::string &weight = "weight")
 /// @param only_backbone Do not add the missing pairs.
 /// @return The closure graph.
 /// @throws std::invalid_argument for an unknown kind or algorithm; std::logic_error for "dense".
-Graph distance_closure(const Graph &d, const std::string &kind = "metric",
-                       const std::string &algorithm = "dijkstra",
-                       const std::string &weight = "weight", bool only_backbone = false);
+Graph distance_closure(const Graph &d, std::string_view kind = "metric",
+                       std::string_view algorithm = "dijkstra", std::string_view weight = "weight",
+                       bool only_backbone = false);
 
 /// @brief s-values of a closure graph (closure.py): "s-value" = distance / closure distance.
 /// @param cm Closure graph from distance_closure.
 /// @param weight_distance Original distance attribute.
 /// @param weight_metric_distance Closure distance attribute.
 /// @return Copy of cm with "s-value" on the edges of finite distance and positive closure distance.
-Graph s_values(const Graph &cm, const std::string &weight_distance = "distance",
-               const std::string &weight_metric_distance = "metric_distance");
+Graph s_values(const Graph &cm, std::string_view weight_distance = "distance",
+               std::string_view weight_metric_distance = "metric_distance");
 
 /// @brief b-values of a closure graph (closure.py).
 ///
@@ -335,8 +340,8 @@ Graph s_values(const Graph &cm, const std::string &weight_distance = "distance",
 /// @param weight_distance Original distance attribute (infinite on the added pairs).
 /// @param weight_metric_distance Closure distance attribute.
 /// @return Copy of cm with the b-values set.
-Graph b_values(const Graph &cm, const std::string &weight_distance = "distance",
-               const std::string &weight_metric_distance = "metric_distance");
+Graph b_values(const Graph &cm, std::string_view weight_distance = "distance",
+               std::string_view weight_metric_distance = "metric_distance");
 
 /// @brief Dense matrix, row-major: m[row][column].
 using Matrix = std::vector<std::vector<double>>;
@@ -350,7 +355,7 @@ using Matrix = std::vector<std::vector<double>>;
 ///        1 otherwise).
 /// @return Symmetric matrix of proximities with ones on the diagonal.
 /// @throws std::invalid_argument for negative entries or an unknown metric.
-Matrix pairwise_proximity(const Matrix &m, const std::string &metric = "jaccard",
+Matrix pairwise_proximity(const Matrix &m, std::string_view metric = "jaccard",
                           double min_support = -1);
 
 /// @brief Converts a [0, 1] proximity to a [0, inf] distance, d = 1 / p - 1 (utils.py).
@@ -454,7 +459,7 @@ std::vector<double> weights(const Graph &g);
 /// @param g Graph.
 /// @param weight "" for the degree, or the attribute whose sum gives the strength.
 /// @return One value per node, in node order.
-std::vector<double> degrees(const Graph &g, const std::string &weight = "");
+std::vector<double> degrees(const Graph &g, std::string_view weight = "");
 
 /// @brief Mean local clustering coefficient over the nodes of degree >= 2 (igraph mode="nan").
 /// @param original Unused (kept for the Property signature).

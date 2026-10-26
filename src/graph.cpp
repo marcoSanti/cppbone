@@ -10,6 +10,7 @@
 #include <exception>
 #include <fstream>
 #include <ostream>
+#include <ranges>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -17,12 +18,10 @@
 
 namespace cppbone {
 
-std::uint64_t Graph::key(int u, int v) {
-    if (u > v) {
-        std::swap(u, v);
-    }
-    return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(u)) << 32) |
-           static_cast<std::uint32_t>(v);
+std::uint64_t Graph::key(const int u, const int v) {
+    const auto [lo, hi] = std::minmax(u, v);
+    return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(lo)) << 32) |
+           static_cast<std::uint32_t>(hi);
 }
 
 /// @brief Element count below which copying or freeing a graph stays single-threaded (threads would
@@ -76,19 +75,19 @@ Graph::~Graph() {
     }
 }
 
-int Graph::add_node(const std::string &label) {
+int Graph::add_node(const std::string_view label) {
     if (const auto it = index_.find(label); it != index_.end()) {
         return it->second;
     }
-    int id = static_cast<int>(labels_.size());
-    labels_.push_back(label);
-    index_.emplace(label, id);
+    const int id = static_cast<int>(labels_.size());
+    labels_.emplace_back(label);
+    index_.emplace(labels_.back(), id);
     adj_.emplace_back();
     node_attrs_.emplace_back();
     return id;
 }
 
-int Graph::add_edge(const std::string &u, const std::string &v, const Attrs &attrs) {
+int Graph::add_edge(const std::string_view u, const std::string_view v, const Attrs &attrs) {
     const int a = add_node(u);
     const int b = add_node(v);
     return add_edge(a, b, attrs);
@@ -100,7 +99,7 @@ int Graph::add_edge(int u, int v, const Attrs &attrs) {
         id = static_cast<int>(ends_.size());
         ends_.emplace_back(u, v);
         attrs_.emplace_back();
-        std::uint64_t k = key(u, v);
+        const std::uint64_t k = key(u, v);
         if (edge_index_.empty()) {
             edge_index_.resize(EDGE_SHARDS); // moved-from graph
         }
@@ -112,15 +111,15 @@ int Graph::add_edge(int u, int v, const Attrs &attrs) {
         ++n_edges_;
     }
     for (const auto &[k, val] : attrs) {
-        attrs_[id][k] = val;
+        assign(attrs_[id], k, val);
     }
     return id;
 }
 
 void Graph::remove_edge(int id) {
-    auto [u, v] = ends_[id];
-    auto drop   = [id](std::vector<std::pair<int, int>> &a) {
-        a.erase(std::find_if(a.begin(), a.end(), [id](const auto &p) { return p.second == id; }));
+    const auto [u, v] = ends_[id];
+    auto drop         = [id](std::vector<Adjacent> &a) {
+        a.erase(std::ranges::find(a, id, &Adjacent::edge));
     };
     drop(adj_[u]);
     if (u != v) {
@@ -131,31 +130,23 @@ void Graph::remove_edge(int id) {
     --n_edges_;
 }
 
-void Graph::remove_edges(const std::vector<char> &drop) {
+void Graph::remove_edges(const std::span<const char> drop) {
     const int n      = number_of_nodes();
     const int shards = static_cast<int>(edge_index_.size());
     int removed      = 0;
 #pragma omp parallel for schedule(dynamic, 1) reduction(+ : removed)
     for (int i = 0; i < shards; ++i) {
-        for (auto it = edge_index_[i].begin(); it != edge_index_[i].end();) {
-            if (drop[it->second]) {
-                it = edge_index_[i].erase(it), ++removed;
-            } else {
-                ++it;
-            }
-        }
+        removed += static_cast<int>(std::erase_if(
+            edge_index_[i], [&](const auto &entry) { return drop[entry.second] != 0; }));
     }
     n_edges_ -= removed;
 #pragma omp parallel for schedule(dynamic, 256)
     for (int u = 0; u < n; ++u) {
-        auto &a = adj_[u];
-        a.erase(
-            std::remove_if(a.begin(), a.end(), [&](const auto &p) { return drop[p.second] != 0; }),
-            a.end());
+        std::erase_if(adj_[u], [&](const Adjacent &a) { return drop[a.edge] != 0; });
     }
 }
 
-int Graph::node(const std::string &label) const {
+int Graph::node(const std::string_view label) const {
     const auto it = index_.find(label);
     return it == index_.end() ? -1 : it->second;
 }
@@ -170,14 +161,14 @@ int Graph::find_edge(const int u, const int v) const {
     return it == index.end() ? -1 : it->second;
 }
 
+/// Nodes are visited in index order, so an edge is met first from its lower endpoint: listing it
+/// there (u <= v, which also lists a self-loop once) gives networkx's order without a seen-set.
 std::vector<EdgeRef> Graph::edges() const {
     std::vector<EdgeRef> out;
     out.reserve(n_edges_);
-    std::vector seen(ends_.size(), false);
-    for (int u = 0; u < number_of_nodes(); ++u) {
-        for (auto [v, id] : adj_[u]) {
-            if (!seen[id]) {
-                seen[id] = true;
+    for (const int u : nodes()) {
+        for (const auto [v, id] : adj_[u]) {
+            if (u <= v) {
                 out.push_back({u, v, id});
             }
         }
@@ -185,41 +176,41 @@ std::vector<EdgeRef> Graph::edges() const {
     return out;
 }
 
-double Graph::degree(int u, const std::string &weight) const {
+double Graph::degree(const int u, const std::string_view weight) const {
     double s = 0;
-    for (auto [v, id] : adj_[u]) {
-        auto it        = attrs_[id].find(weight);
+    for (const auto [v, id] : adj_[u]) {
+        const auto it  = attrs_[id].find(weight);
         const double w = it == attrs_[id].end() ? 1.0 : it->second;
         s += v == u ? 2 * w : w; // networkx counts self-loops twice
     }
     return s;
 }
 
-double Graph::get(const int id, const std::string &key) const {
+double Graph::get(const int id, const std::string_view key) const {
     const auto it = attrs_[id].find(key);
     return it == attrs_[id].end() ? NaN : it->second;
 }
 
-std::vector<double> Graph::edge_values(const std::string &key, double missing) const {
+std::vector<double> Graph::edge_values(const std::string_view key, const double missing) const {
     std::vector out(ends_.size(), missing);
     const int m = static_cast<int>(ends_.size());
 #pragma omp parallel for schedule(static)
     for (int id = 0; id < m; ++id) {
-        if (auto it = attrs_[id].find(key); it != attrs_[id].end()) {
+        if (const auto it = attrs_[id].find(key); it != attrs_[id].end()) {
             out[id] = it->second;
         }
     }
     return out;
 }
 
-double Graph::node_get(int u, const std::string &key) const {
+double Graph::node_get(const int u, const std::string_view key) const {
     const auto it = node_attrs_[u].find(key);
     return it == node_attrs_[u].end() ? NaN : it->second;
 }
 
 Graph Graph::subgraph(const std::vector<bool> &keep) const {
     Graph g;
-    for (int u = 0; u < number_of_nodes(); ++u) {
+    for (const int u : nodes()) {
         if (keep[u]) {
             g.add_node(labels_[u]);
             g.node_attrs_.back() = node_attrs_[u];
@@ -237,18 +228,9 @@ Graph Graph::subgraph(const std::vector<bool> &keep) const {
 /// @param line Line without its terminator.
 /// @return The fields: "a," gives {"a", ""} and an empty line gives no fields.
 static std::vector<std::string_view> split(const std::string_view line) {
-    std::vector<std::string_view> out;
-    if (line.empty()) {
-        return out;
-    }
-    size_t start = 0;
-    for (size_t i = 0; i <= line.size(); ++i) {
-        if (i == line.size() || line[i] == ',') {
-            out.push_back(line.substr(start, i - start));
-            start = i + 1;
-        }
-    }
-    return out;
+    return line | std::views::split(',') |
+           std::views::transform([](auto field) { return std::string_view(field); }) |
+           std::ranges::to<std::vector>();
 }
 
 /// @brief Converts a CSV field to an attribute value.
@@ -256,7 +238,8 @@ static std::vector<std::string_view> split(const std::string_view line) {
 /// @return NaN for an empty field, 1 / 0 for "True" / "False" (either case of the first letter),
 /// else the number.
 /// @throws std::invalid_argument if the field is not numeric.
-static double parse_value(const std::string &s) {
+static double parse_value(const std::string_view field) {
+    const std::string s(field);
     if (s.empty()) {
         return NaN;
     }
@@ -359,14 +342,13 @@ void Graph::add_rows(std::vector<CsvRow> &rows) {
         if (skip) {
             continue;
         }
-        const int u =
-            add_node(std::string(source)); // separate statements: source first fixes the node order
-        const int v = add_node(std::string(target));
+        const int u = add_node(source); // separate statements: source first fixes the node order
+        const int v = add_node(target);
         if (const int id = add_edge(u, v); attrs_[id].empty()) {
             attrs_[id] = std::move(attrs);
         } else {
             for (const auto &[k, val] : attrs) {
-                attrs_[id][k] = val;
+                assign(attrs_[id], k, val);
             }
         }
         Attrs().swap(attrs);
@@ -379,17 +361,14 @@ Graph Graph::read_csv(const std::string &path) {
     if (lines.empty()) {
         throw std::runtime_error("empty csv: " + path);
     }
-    auto header_views = split(lines[0]);
-    const std::vector<std::string> header(header_views.begin(), header_views.end());
-    int src = -1, dst = -1;
-    for (int i = 0; i < static_cast<int>(header.size()); ++i) {
-        if (header[i] == "source") {
-            src = i;
-        }
-        if (header[i] == "target") {
-            dst = i;
-        }
-    }
+    const auto header = split(lines[0]) | std::ranges::to<std::vector<std::string>>();
+    // the last column of each name wins, as before
+    const auto column = [&](const std::string_view name) {
+        const auto it = std::ranges::find(header | std::views::reverse, name);
+        return it == header.rend() ? -1 : static_cast<int>(header.rend() - it) - 1;
+    };
+    const int src = column("source");
+    const int dst = column("target");
     if (src < 0 || dst < 0) {
         throw std::runtime_error("csv needs 'source' and 'target' columns");
     }
@@ -400,7 +379,7 @@ Graph Graph::read_csv(const std::string &path) {
         }
         for (int i = 0; i < static_cast<int>(cells.size()); ++i) {
             if (i != src && i != dst) {
-                row.attrs[header[i]] = parse_value(std::string(cells[i]));
+                row.attrs[header[i]] = parse_value(cells[i]);
             }
         }
         row.source = cells[src];
@@ -426,7 +405,7 @@ Graph Graph::read_csv(const std::string &path, int source_col, int target_col, i
             throw std::runtime_error("bad csv row: " + std::string(line));
         }
         if (weight_col >= 0) {
-            row.attrs["weight"] = parse_value(std::string(cells[weight_col]));
+            row.attrs.emplace("weight", parse_value(cells[weight_col]));
         }
         row.source = cells[source_col];
         row.target = cells[target_col];
@@ -452,10 +431,11 @@ std::string format_double(const double x) {
 }
 
 void Graph::to_csv(std::ostream &out) const {
-    std::set<std::string> cols;
-    for (const auto &e : edges()) {
-        for (const auto &[fst, _] : attrs_[e.id]) {
-            cols.insert(fst);
+    const auto rows = edges();
+    std::set<std::string_view> cols;
+    for (const auto &e : rows) {
+        for (const auto &name : attrs_[e.id] | std::views::keys) {
+            cols.insert(name);
         }
     }
     out << "source,target";
@@ -463,7 +443,7 @@ void Graph::to_csv(std::ostream &out) const {
         out << ',' << c;
     }
     out << '\n';
-    for (const auto &[u, v, id] : edges()) {
+    for (const auto &[u, v, id] : rows) {
         out << labels_[u] << ',' << labels_[v];
         for (const auto &c : cols) {
             out << ',' << format_double(get(id, c));
@@ -473,10 +453,10 @@ void Graph::to_csv(std::ostream &out) const {
 }
 
 void Graph::nodes_to_csv(std::ostream &out) const {
-    std::set<std::string> cols;
+    std::set<std::string_view> cols;
     for (const auto &a : node_attrs_) {
-        for (const auto &[fst, _] : a) {
-            cols.insert(fst);
+        for (const auto &name : a | std::views::keys) {
+            cols.insert(name);
         }
     }
     out << "node";
@@ -484,7 +464,7 @@ void Graph::nodes_to_csv(std::ostream &out) const {
         out << ',' << c;
     }
     out << '\n';
-    for (int u = 0; u < number_of_nodes(); ++u) {
+    for (const int u : nodes()) {
         out << labels_[u];
         for (const auto &c : cols) {
             out << ',' << format_double(node_get(u, c));

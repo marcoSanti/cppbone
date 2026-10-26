@@ -5,6 +5,8 @@
 /// Only the undirected variant is ported; the Python directed path cannot run (_pvalue_directed is
 /// called with the wrong keyword names).
 #include <algorithm>
+#include <numeric>
+#include <ranges>
 #include <stdexcept>
 
 #include "../../include/cppbone/detail.hpp"
@@ -27,25 +29,16 @@ static double pvalue_undirected(double w, double ku, double kv, double q) {
 }
 
 Backbone marginal_likelihood(const Graph &data) {
-    for (const auto &e : data.edges()) {
-        if (data.get(e.id, "weight") < 0) {
-            throw std::invalid_argument("All weights must be non-negative");
-        }
-    }
-
-    const int n = data.number_of_nodes();
-    std::vector<double> ks(n);
-#pragma omp parallel for schedule(dynamic, 256)
-    for (int u = 0; u < n; ++u) {
-        ks[u] = data.degree(u, "weight");
-    }
-    double total_degree = 0;
-    for (int u = 0; u < n; ++u) {
-        total_degree += ks[u];
-    }
-
     const auto edges = data.edges();
-    const int m      = static_cast<int>(edges.size());
+    if (std::ranges::any_of(edges,
+                            [&](const EdgeRef &e) { return data.get(e.id, "weight") < 0; })) {
+        throw std::invalid_argument("All weights must be non-negative");
+    }
+
+    const auto ks             = detail::strengths(data, "weight");
+    const double total_degree = std::accumulate(ks.begin(), ks.end(), 0.0);
+
+    const int m = static_cast<int>(edges.size());
     std::vector<double> p(m);
 #pragma omp parallel for schedule(dynamic, 1024)
     for (int i = 0; i < m; ++i) {
@@ -57,13 +50,15 @@ Backbone marginal_likelihood(const Graph &data) {
     // The Python version round-trips through a source/target/weight/p_value DataFrame, so only
     // those survive.
     Graph g;
-    for (int i = 0; i < m; ++i) {
-        const auto &[u, v, id] = edges[i];
-        g.add_edge(data.label(u), data.label(v),
-                   {{"weight", data.get(id, "weight")}, {"p_value", p[i]}});
+    for (const auto &[e, p_value] : std::views::zip(edges, p)) {
+        g.add_edge(data.label(e.u), data.label(e.v),
+                   {{"weight", data.get(e.id, "weight")}, {"p_value", p_value}});
     }
-    return {std::move(g), "Marginal Likelihood Filter",        "p_value",
-            true,         {threshold_filter, fraction_filter}, FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "Marginal Likelihood Filter",
+            .property_name = "p_value",
+            .ascending     = true,
+            .filters       = {threshold_filter, fraction_filter}};
 }
 
 } // namespace cppbone

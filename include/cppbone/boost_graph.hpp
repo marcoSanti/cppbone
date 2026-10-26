@@ -4,6 +4,7 @@
 /// @brief Conversion of a Graph to a Boost.Graph adjacency_list, and the Dijkstra built on it.
 
 #include <algorithm>
+#include <span>
 #include <vector>
 
 #include <boost/graph/adjacency_list.hpp>
@@ -26,8 +27,7 @@ using BoostGraph =
 /// @return The Boost graph; get(boost::edge_index, b, e) is the Graph edge id of e.
 inline BoostGraph to_boost(const Graph &g, const bool self_loops = true) {
     auto edges = g.edges();
-    std::sort(edges.begin(), edges.end(),
-              [](const EdgeRef &a, const EdgeRef &b) { return a.id < b.id; });
+    std::ranges::sort(edges, {}, &EdgeRef::id);
     BoostGraph b(g.number_of_nodes());
     for (const auto &e : edges) {
         if (auto [u, v] = g.ends(e.id); self_loops || u != v) {
@@ -57,10 +57,10 @@ struct ShortestPaths {
 /// @param cutoff Stop once the next node to settle is at distance >= cutoff. Nodes reached but not
 /// settled keep an
 ///        upper bound >= cutoff in out.dist.
-/// @param removed If given, edges with a non-zero entry are ignored.
+/// @param removed Indexed by edge id, edges with a non-zero entry are ignored; empty ignores none.
 /// @throws boost::negative_edge (a std::invalid_argument) for a negative distance.
-void dijkstra(const BoostGraph &b, int source, const std::vector<double> &weight,
+void dijkstra(const BoostGraph &b, int source, std::span<const double> weight,
               Disjunction disjunction, ShortestPaths &out, double cutoff = INF,
-              const std::vector<char> *removed = nullptr);
+              std::span<const char> removed = {});
 
 } // namespace cppbone::detail

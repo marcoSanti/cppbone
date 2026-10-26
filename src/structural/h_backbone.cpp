@@ -13,7 +13,7 @@ namespace cppbone {
 /// @param values Values (copied and sorted).
 /// @return The h-index, 0 for an empty list.
 static double h_index(std::vector<double> values) {
-    std::sort(values.begin(), values.end());
+    std::ranges::sort(values);
     double h = 0;
     for (size_t i = 0; i < values.size(); ++i) {
         h = static_cast<double>(values.size() - i);
@@ -45,8 +45,10 @@ Backbone h_backbone(const Graph &data) {
         g.set(edges[i].id, "in_backbone",
               bridge_values[i] >= h_bridge || weight_values[i] >= h_weight);
     }
-    return {std::move(g), "H-Backbone Filter", "h_bridge",
-            false,        {boolean_filter},    FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "H-Backbone Filter",
+            .property_name = "h_bridge",
+            .filters       = {boolean_filter}};
 }
 
 } // namespace cppbone

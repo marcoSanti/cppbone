@@ -10,7 +10,9 @@
 /// optimum.
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <iostream>
+#include <numeric>
 #include <random>
 #include <stdexcept>
 
@@ -41,14 +43,14 @@ extern "C" void dposv_(const char *uplo, const int *n, const int *nrhs, double *
 namespace {
 
 /// @brief Solves H d = r with LAPACK's Cholesky solver (dposv).
-/// @param H Symmetric n x n matrix (taken by value: LAPACK factorises it in place).
+/// @param H Symmetric matrix, overwritten by its Cholesky factor.
 /// @param r Right-hand side; replaced by the solution d.
-/// @param n Matrix size.
 /// @return false if H is not positive definite.
-bool cholesky_solve(std::vector<double> H, std::vector<double> &r, int n) {
+bool cholesky_solve(detail::DenseMatrix &H, std::vector<double> &r) {
     // H is symmetric, so row-major and column-major storage are the same matrix.
     constexpr char uplo = 'U';
     constexpr int nrhs  = 1;
+    const int n         = static_cast<int>(H.rows());
     int info            = 0;
     dposv_(&uplo, &n, &nrhs, H.data(), &n, r.data(), &n, &info);
     return info == 0;
@@ -103,12 +105,8 @@ struct ECM {
     /// @brief Starting point of the solver: maxent_graph's option 5, clipped to the bounds.
     /// @param rng Random generator for the y part.
     /// @return x_i = k_i / sqrt(edges) and uniformly random y_i, as a parameter vector.
-    std::vector<double> get_initial_guess(std::mt19937 &rng) const {
-        double num_edges = 0;
-        for (const double ki : k) {
-            num_edges += ki;
-        }
-        num_edges /= 2;
+    [[nodiscard]] std::vector<double> get_initial_guess(std::mt19937 &rng) const {
+        const double num_edges = std::accumulate(k.begin(), k.end(), 0.0) / 2;
         std::uniform_real_distribution<double> unif(0, 1);
         std::vector<double> v(2 * n);
         for (int i = 0; i < n; ++i) {
@@ -123,12 +121,12 @@ struct ECM {
     /// @param v Parameter vector.
     /// @param expected Receives the expected degrees (first n) and strengths (last n).
     /// @param grad Receives the gradient with respect to v.
-    /// @param H Receives the 2n x 2n Hessian, row-major.
+    /// @param H Receives the 2n x 2n Hessian.
     void derivatives(const std::vector<double> &v, std::vector<double> &expected,
-                     std::vector<double> &grad, std::vector<double> &H) const {
+                     std::vector<double> &grad, detail::DenseMatrix &H) const {
         const int m = 2 * n;
         expected.assign(m, 0);
-        H.assign(static_cast<size_t>(m) * m, 0);
+        H.assign(m, m, 0);
         std::vector<double> jac(n); // d log y / d b = 1 - y
         for (int i = 0; i < n; ++i) {
             jac[i] = 1 - sigmoid(v[n + i]);
@@ -152,10 +150,10 @@ struct ECM {
                 const double cov   = q.sij * (1 - q.p);
                 const double var_w = q.p * (1 + q.yy) / (q.one_m_yy * q.one_m_yy) - q.sij * q.sij;
                 for (const int col : {r, c}) {
-                    H[static_cast<size_t>(r) * m + col] += var_a;
-                    H[static_cast<size_t>(r) * m + n + col] += cov * jac[col];
-                    H[static_cast<size_t>(n + r) * m + col] += cov * jac[r];
-                    H[static_cast<size_t>(n + r) * m + n + col] += var_w * jac[r] * jac[col];
+                    H[r, col] += var_a;
+                    H[r, n + col] += cov * jac[col];
+                    H[n + r, col] += cov * jac[r];
+                    H[n + r, n + col] += var_w * jac[r] * jac[col];
                 }
             }
         }
@@ -164,8 +162,7 @@ struct ECM {
             const double g_logy = expected[n + i] - s[i];
             grad[i]             = expected[i] - k[i];
             grad[n + i]         = jac[i] * g_logy;
-            H[static_cast<size_t>(n + i) * m + n + i] -=
-                g_logy * (1 - jac[i]) * jac[i]; // d2 log y / d b2 = -y (1 - y)
+            H[n + i, n + i] -= g_logy * (1 - jac[i]) * jac[i]; // d2 log y / d b2 = -y (1 - y)
         }
     }
 
@@ -192,10 +189,7 @@ struct ECM {
                 rows[i] += std::log1p((r1 - r0) / (1 + r0));
             }
         }
-        for (const double x : rows) {
-            d += x;
-        }
-        return d;
+        return std::accumulate(rows.begin(), rows.end(), d);
     }
 
     /// @brief Largest relative error between the expected and observed sequences.
@@ -221,19 +215,17 @@ struct ECM {
     ///         smaller errors).
     [[nodiscard]] std::vector<double> solve(std::vector<double> v) const {
         const int m = 2 * n;
-        std::vector<double> expected, g, H;
+        std::vector<double> expected, g;
+        detail::DenseMatrix H, Hr;
         derivatives(v, expected, g, H);
         double scale = 0;
         for (int i = 0; i < m; ++i) {
-            scale = std::max(scale, std::abs(H[static_cast<size_t>(i) * m + i]));
+            scale = std::max(scale, std::abs(H[i, i]));
         }
         double lambda = 1e-6 * scale;
         bool success  = false;
         for (int it = 0; it < 1000; ++it) {
-            double gnorm = 0;
-            for (double x : g) {
-                gnorm += x * x;
-            }
+            const double gnorm = std::inner_product(g.begin(), g.end(), g.begin(), 0.0);
             // same stopping rule as scipy trust-krylov (gtol=1e-8), or an essentially exact fit
             if (std::sqrt(gnorm) < 1e-8 || max_relative_error(expected) < 1e-12) {
                 success = true;
@@ -241,18 +233,17 @@ struct ECM {
             }
             bool stepped = false;
             while (lambda < 1e30 && !stepped) {
-                std::vector<double> Hr = H, d = g;
+                Hr                    = H; // reuses Hr's storage: no allocation per attempt
+                std::vector<double> d = g;
                 for (int i = 0; i < m; ++i) {
-                    Hr[static_cast<size_t>(i) * m + i] += lambda;
+                    Hr[i, i] += lambda;
                 }
-                if (!cholesky_solve(Hr, d, m)) {
+                if (!cholesky_solve(Hr, d)) {
                     lambda = std::max(lambda * 10, 1e-12);
                     continue;
                 }
                 std::vector<double> w(m);
-                for (int i = 0; i < m; ++i) {
-                    w[i] = v[i] - d[i];
-                }
+                std::ranges::transform(v, d, w.begin(), std::minus<>());
                 if (const double df = delta_nll(v, w); std::isfinite(df) && df < 0) {
                     v.swap(w);
                     lambda  = std::max(lambda / 3, 1e-12);
@@ -291,8 +282,8 @@ Backbone ecm(const Graph &data, const std::uint32_t seed) {
         if (e.u == e.v) {
             continue; // ignore self-loops
         }
-        double we = w[e.id];
-        for (int i : {e.u, e.v}) {
+        const double we = w[e.id];
+        for (const int i : {e.u, e.v}) {
             model.k[i] += we > 0;
             model.s[i] += we;
         }
@@ -310,8 +301,11 @@ Backbone ecm(const Graph &data, const std::uint32_t seed) {
         // probability this weight would be at least this large, given null model
         g.set(id, "p_value", pij * std::pow(yy, w[id] - 1));
     }
-    return {std::move(g), "Enhanced Configuration Model Filter", "p_value",
-            true,         {threshold_filter, fraction_filter},   FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "Enhanced Configuration Model Filter",
+            .property_name = "p_value",
+            .ascending     = true,
+            .filters       = {threshold_filter, fraction_filter}};
 }
 
 } // namespace cppbone

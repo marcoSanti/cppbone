@@ -3,7 +3,8 @@
 #undef NDEBUG
 #include <cassert>
 #include <cmath>
-#include <iostream>
+#include <format>
+#include <print>
 
 #include "cppbone/cppbone.hpp"
 
@@ -41,7 +42,7 @@ int main(int argc, char** argv) {
     Graph grid;
     for (int i = 0; i < 6; ++i)
         for (int j = 0; j < 6; ++j) {
-            auto id = [](int a, int b) { return std::to_string(a) + "_" + std::to_string(b); };
+            auto id = [](int a, int b) { return std::format("{}_{}", a, b); };
             if (i + 1 < 6) grid.add_edge(id(i, j), id(i + 1, j));
             if (j + 1 < 6) grid.add_edge(id(i, j), id(i, j + 1));
         }
@@ -136,10 +137,10 @@ int main(int argc, char** argv) {
         };
         for (auto& [name, b] : all) {
             Graph x = b.filters.front()(b, 0.1, false, "weight", false);
-            std::cout << name << ": " << x.number_of_nodes() << " nodes, " << x.number_of_edges() << " edges\n";
+            std::println("{}: {} nodes, {} edges", name, x.number_of_nodes(), x.number_of_edges());
         }
         auto mst_g = boolean_filter(maximum_spanning_tree(g), 0, false);
         assert(mst_g.number_of_edges() == g.number_of_nodes() - (int)connected_components(g).size());
     }
-    std::cout << "all checks passed\n";
+    std::println("all checks passed");
 }

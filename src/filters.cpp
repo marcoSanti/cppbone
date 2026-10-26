@@ -3,7 +3,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <compare>
 #include <iostream>
+#include <ranges>
+#include <utility>
 
 #include "cppbone/backbone.hpp"
 
@@ -28,12 +31,13 @@ std::string filter_name(const Filter f) {
 /// @return true if f is among b's compatible filters.
 static bool accepts(const Backbone &b, const Filter f) {
     const auto &fs = b.compatible_filters();
-    if (std::find(fs.begin(), fs.end(), f) != fs.end()) {
+    if (std::ranges::contains(fs, f)) {
         return true;
     }
     std::cout << "The accepted filters for " << b.method_name << " are: ";
-    for (size_t i = 0; i < fs.size(); ++i) {
-        std::cout << (i ? ", " : "") << filter_name(fs[i]);
+    const char *separator = "";
+    for (const Filter accepted : fs) {
+        std::cout << std::exchange(separator, ", ") << filter_name(accepted);
     }
     std::cout << '\n';
     return false;
@@ -44,16 +48,16 @@ static bool accepts(const Backbone &b, const Filter f) {
 /// @param a First key.
 /// @param b Second key.
 /// @param ascending Sort direction.
-/// @return -1 if a sorts first, 1 if b does, 0 if they tie.
-static int cmp_key(const double a, const double b, const bool ascending) {
-    const bool nb = std::isnan(b);
-    if (const bool na = std::isnan(a); na || nb) {
-        return na == nb ? 0 : (na ? 1 : -1);
+/// @return less if a sorts first, greater if b does, equivalent if they tie.
+static std::weak_ordering cmp_key(const double a, const double b, const bool ascending) {
+    const bool na = std::isnan(a);
+    if (const bool nb = std::isnan(b); na || nb) {
+        return na <=> nb; // NaN sorts after any number
     }
     if (a == b) {
-        return 0;
+        return std::weak_ordering::equivalent;
     }
-    return (a < b) == ascending ? -1 : 1;
+    return (a < b) == ascending ? std::weak_ordering::less : std::weak_ordering::greater;
 }
 
 /// @brief Builds a graph from a list of edges of another graph, keeping their attributes and order.
@@ -74,20 +78,21 @@ static Graph from_edges(const Graph &g, const std::vector<EdgeRef> &rows) {
 /// @param secondary Secondary attribute.
 /// @param secondary_ascending Sort the secondary attribute in ascending order.
 /// @return The sorted edges.
-static std::vector<EdgeRef> sorted_edges(const Backbone &b, const std::string &secondary,
+static std::vector<EdgeRef> sorted_edges(const Backbone &b, const std::string_view secondary,
                                          const bool secondary_ascending) {
     const Graph &g  = b.graph;
     auto rows       = g.edges();
-    const auto key  = g.edge_values(b.property_name, NaN);
     // keys looked up once, not per comparison
+    const auto key  = g.edge_values(b.property_name, NaN);
     const auto key2 = g.edge_values(secondary, NaN);
-    std::stable_sort(rows.begin(), rows.end(), [&](const EdgeRef &x, const EdgeRef &y) {
-        int c = cmp_key(key[x.id], key[y.id], b.ascending);
-        if (c == 0) {
-            c = cmp_key(key2[x.id], key2[y.id], secondary_ascending);
-        }
-        return c < 0;
-    });
+    std::ranges::stable_sort(
+        rows,
+        [&](const int x, const int y) {
+            const auto primary = cmp_key(key[x], key[y], b.ascending);
+            return std::is_lt(std::is_eq(primary) ? cmp_key(key2[x], key2[y], secondary_ascending)
+                                                  : primary);
+        },
+        &EdgeRef::id);
     return rows;
 }
 
@@ -96,16 +101,12 @@ static std::vector<EdgeRef> sorted_edges(const Backbone &b, const std::string &s
 /// @return The sorted node indices.
 static std::vector<int> sorted_nodes(const Backbone &b) {
     const Graph &g = b.graph;
-    std::vector<int> nodes(g.number_of_nodes());
-    for (int u = 0; u < g.number_of_nodes(); ++u) {
-        nodes[u] = u;
-    }
-    std::vector<double> key(g.number_of_nodes());
-    for (int u = 0; u < g.number_of_nodes(); ++u) {
-        key[u] = g.node_get(u, b.property_name);
-    }
-    std::stable_sort(nodes.begin(), nodes.end(), [&](const int x, const int y) {
-        return cmp_key(key[x], key[y], b.ascending) < 0;
+    auto nodes     = g.nodes() | std::ranges::to<std::vector>();
+    const auto key =
+        nodes | std::views::transform([&](const int u) { return g.node_get(u, b.property_name); }) |
+        std::ranges::to<std::vector>();
+    std::ranges::stable_sort(nodes, [&](const int x, const int y) {
+        return std::is_lt(cmp_key(key[x], key[y], b.ascending));
     });
     return nodes;
 }
@@ -119,25 +120,23 @@ static bool passes(const double x, const double value, const bool ascending) {
     return ascending ? x < value : x > value;
 }
 
-Graph boolean_filter(const Backbone &backbone, double, const bool narrate, const std::string &,
-                     bool) {
+Graph boolean_filter(const Backbone &backbone, double, const bool narrate, std::string_view, bool) {
     if (!accepts(backbone, boolean_filter)) {
         return {};
     }
     if (narrate) {
         backbone.narrate();
     }
-    std::vector<EdgeRef> rows;
-    for (const auto &e : backbone.graph.edges()) {
-        if (const double in = backbone.graph.get(e.id, "in_backbone"); !std::isnan(in) && in != 0) {
-            rows.push_back(e);
-        }
-    }
-    return from_edges(backbone.graph, rows);
+    const auto in_backbone = [&](const EdgeRef &e) {
+        const double in = backbone.graph.get(e.id, "in_backbone");
+        return !std::isnan(in) && in != 0;
+    };
+    return from_edges(backbone.graph, backbone.graph.edges() | std::views::filter(in_backbone) |
+                                          std::ranges::to<std::vector>());
 }
 
 Graph threshold_filter(const Backbone &backbone, const double value, const bool narrate,
-                       const std::string &secondary_property,
+                       const std::string_view secondary_property,
                        const bool secondary_property_ascending) {
     if (!accepts(backbone, threshold_filter)) {
         return {};
@@ -147,24 +146,22 @@ Graph threshold_filter(const Backbone &backbone, const double value, const bool 
     }
     const Graph &g = backbone.graph;
     if (backbone.filter_on == FilterOn::Edges) {
-        std::vector<EdgeRef> rows;
-        for (const auto &e :
-             sorted_edges(backbone, secondary_property, secondary_property_ascending)) {
-            if (passes(g.get(e.id, backbone.property_name), value, backbone.ascending)) {
-                rows.push_back(e);
-            }
-        }
-        return from_edges(g, rows);
+        const auto pass = [&](const EdgeRef &e) {
+            return passes(g.get(e.id, backbone.property_name), value, backbone.ascending);
+        };
+        return from_edges(g,
+                          sorted_edges(backbone, secondary_property, secondary_property_ascending) |
+                              std::views::filter(pass) | std::ranges::to<std::vector>());
     }
-    std::vector keep(g.number_of_nodes(), false);
-    for (int u = 0; u < g.number_of_nodes(); ++u) {
-        keep[u] = passes(g.node_get(u, backbone.property_name), value, backbone.ascending);
-    }
-    return g.subgraph(keep);
+    return g.subgraph(g.nodes() | std::views::transform([&](const int u) {
+                          return passes(g.node_get(u, backbone.property_name), value,
+                                        backbone.ascending);
+                      }) |
+                      std::ranges::to<std::vector<bool>>());
 }
 
 Graph fraction_filter(const Backbone &backbone, const double value, const bool narrate,
-                      const std::string &secondary_property,
+                      const std::string_view secondary_property,
                       const bool secondary_property_ascending) {
     if (!accepts(backbone, fraction_filter)) {
         return {};
@@ -182,8 +179,8 @@ Graph fraction_filter(const Backbone &backbone, const double value, const bool n
     const size_t n =
         std::min(nodes.size(), static_cast<size_t>(std::ceil(value * g.number_of_nodes())));
     std::vector keep(g.number_of_nodes(), false);
-    for (size_t i = 0; i < n; ++i) {
-        keep[nodes[i]] = true;
+    for (const int u : nodes | std::views::take(n)) {
+        keep[u] = true;
     }
     return g.subgraph(keep);
 }

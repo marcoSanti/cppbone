@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <ranges>
 
 #include <boost/graph/connected_components.hpp>
 #include <boost/math/distributions/binomial.hpp>
@@ -30,21 +31,21 @@ std::vector<std::vector<int>> connected_components(const Graph &g) {
     std::vector<int> component(g.number_of_nodes());
     const int count = boost::connected_components(detail::to_boost(g), component.data());
     std::vector<std::vector<int>> comps(count);
-    for (int u = 0; u < g.number_of_nodes(); ++u) {
+    for (const int u : g.nodes()) {
         comps[component[u]].push_back(u);
     }
     return comps;
 }
 
 Graph lcc(const Graph &g) {
-    auto comps = connected_components(g);
-    std::vector keep(g.number_of_nodes(), false);
+    const auto comps = connected_components(g);
     if (comps.empty()) {
         return g;
     }
-    const auto big = std::max_element(comps.begin(), comps.end(),
-                                      [](auto &a, auto &b) { return a.size() < b.size(); });
-    for (const int u : *big) {
+    std::vector keep(g.number_of_nodes(), false);
+    const auto largest =
+        std::ranges::max_element(comps, {}, [](const auto &c) { return c.size(); });
+    for (const int u : *largest) {
         keep[u] = true;
     }
     return g.subgraph(keep);
@@ -53,15 +54,15 @@ Graph lcc(const Graph &g) {
 std::vector<std::pair<double, double>> cumulative_dist(std::vector<double> values,
                                                        bool increasing) {
     if (increasing) {
-        std::sort(values.begin(), values.end(), std::greater<>());
+        std::ranges::sort(values, std::greater<>());
     } else {
-        std::sort(values.begin(), values.end());
+        std::ranges::sort(values);
     }
-    std::vector<std::pair<double, double>> out;
-    for (size_t i = 0; i < values.size(); ++i) {
-        out.emplace_back(values[i], static_cast<double>(i + 1) / values.size());
-    }
-    return out;
+    const auto size = static_cast<double>(values.size());
+    return std::views::iota(size_t{0}, values.size()) | std::views::transform([&](const size_t i) {
+               return std::pair{values[i], static_cast<double>(i + 1) / size};
+           }) |
+           std::ranges::to<std::vector>();
 }
 
 /// @brief Tells whether binomial parameters are invalid (scipy returns NaN for them).

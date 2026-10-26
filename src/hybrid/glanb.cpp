@@ -6,9 +6,11 @@
 #include <boost/property_map/function_property_map.hpp>
 #include <cfloat>
 #include <cmath>
+#include <ranges>
+#include <span>
 
 #include "../../include/cppbone/boost_graph.hpp"
-#include "cppbone/cppbone.hpp"
+#include "../../include/cppbone/detail.hpp"
 
 namespace cppbone {
 /// @brief Three-way comparison of path lengths with igraph's tolerance (igraph_cmp_epsilon).
@@ -40,7 +42,7 @@ namespace {
 /// @brief Records, during Boost's Dijkstra, the settle order and every predecessor of each node in
 /// the shortest-path DAG (ties within igraph's tolerance included).
 struct DagRecorder : boost::default_dijkstra_visitor {
-    const std::vector<double> *length;   ///< Edge lengths by edge id.
+    std::span<const double> length;      ///< Edge lengths by edge id.
     const double *dist;                  ///< The search's distance map.
     std::vector<std::vector<int>> *pred; ///< Predecessors of every node.
     std::vector<int> *order;             ///< Nodes in settle order.
@@ -67,7 +69,7 @@ struct DagRecorder : boost::default_dijkstra_visitor {
     [[maybe_unused]] void edge_not_relaxed(detail::BoostGraph::edge_descriptor e,
                                            const detail::BoostGraph &b) const {
         const auto u = boost::source(e, b), v = boost::target(e, b);
-        if (const double alt = dist[u] + (*length)[boost::get(boost::edge_index, b, e)];
+        if (const double alt = dist[u] + length[boost::get(boost::edge_index, b, e)];
             std::isfinite(alt) && cmp_epsilon(alt, dist[v]) == 0) {
             (*pred)[v].push_back(static_cast<int>(u));
         }
@@ -87,7 +89,7 @@ struct DagRecorder : boost::default_dijkstra_visitor {
 /// DAG.
 /// @return paths[x] for every node; paths[source] - 1 is the number of shortest paths from source.
 static std::vector<double> paths_from(const detail::BoostGraph &bg, int source,
-                                      const std::vector<double> &distance,
+                                      const std::span<const double> distance,
                                       std::vector<std::vector<int>> &pred) {
     const int n = static_cast<int>(boost::num_vertices(bg));
     std::vector dist(n, INF);
@@ -107,12 +109,12 @@ static std::vector<double> paths_from(const detail::BoostGraph &bg, int source,
             .distance_compare(less)
             .distance_inf(INF)
             .distance_zero(0.0)
-            .visitor(DagRecorder{{}, &distance, dist.data(), &pred, &order}));
+            .visitor(DagRecorder{{}, distance, dist.data(), &pred, &order}));
     std::vector<double> paths(n, 0);
-    for (auto it = order.rbegin(); it != order.rend(); ++it) {
-        paths[*it] += 1;
-        for (const int p : pred[*it]) {
-            paths[p] += paths[*it];
+    for (const int x : order | std::views::reverse) {
+        paths[x] += 1;
+        for (const int p : pred[x]) {
+            paths[p] += paths[x];
         }
     }
     return paths;
@@ -143,10 +145,8 @@ Backbone glanb(const Graph &data, double c) {
             }
             auto paths        = paths_from(bg, source, distance, pred);
             const double g_is = paths[source] - 1;
-            for (auto [v, id] : g.adj(source)) {
-                const bool first_hop =
-                    std::find(pred[v].begin(), pred[v].end(), source) != pred[v].end();
-                const double g_ij = first_hop ? paths[v] : 0;
+            for (const auto [v, id] : g.adj(source)) {
+                const double g_ij = std::ranges::contains(pred[v], source) ? paths[v] : 0;
                 const double I_ij = g_ij / g_is;
                 si[2 * static_cast<size_t>(id) + (g.ends(id).first == source ? 0 : 1)] =
                     std::pow(1 - I_ij, std::pow(k_i - 1, c));
@@ -157,31 +157,19 @@ Backbone glanb(const Graph &data, double c) {
 #pragma omp parallel for schedule(static)
     for (int i = 0; i < m; ++i) {
         const auto &[u, v, id] = edges[i];
-        int a = std::min(u, v), b = std::max(u, v);
-        bool has   = false;
-        double cur = NaN;
-        for (const int node : {a, b}) {
-            if (node == b && a == b) {
-                break; // a self-loop is visited once
-            }
-            if (g.degree(node) <= 1) {
-                continue;
-            }
-            if (const double s_ij =
-                    si[2 * static_cast<size_t>(id) + (g.ends(id).first == node ? 0 : 1)];
-                !has || std::isnan(cur) || s_ij < cur) {
-                cur = s_ij, has = true;
-            }
-        }
-        if (has) {
-            g.set(id, "SI", cur);
+        const auto s           = detail::endpoint_min(
+            u, v, [&](const int node) { return g.degree(node) <= 1; },
+            [&](const int node) {
+                return si[2 * static_cast<size_t>(id) + (g.ends(id).first == node ? 0 : 1)];
+            });
+        if (s) {
+            g.set(id, "SI", *s);
         }
     }
-    return {std::move(g),
-            "Globally and Locally Adaptive Backbone Filter",
-            "SI",
-            true,
-            {threshold_filter, fraction_filter},
-            FilterOn::Edges};
+    return {.graph         = std::move(g),
+            .method_name   = "Globally and Locally Adaptive Backbone Filter",
+            .property_name = "SI",
+            .ascending     = true,
+            .filters       = {threshold_filter, fraction_filter}};
 }
 } // namespace cppbone

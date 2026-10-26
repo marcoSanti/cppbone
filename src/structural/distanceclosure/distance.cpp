@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <ranges>
 #include <set>
 #include <stdexcept>
 
@@ -67,8 +68,8 @@ static double jaccard_coef_set(const Row &u, const Row &v, double min_support) {
     const std::set a(u.begin(), u.end());
     const std::set b(v.begin(), v.end());
     double inter = 0;
-    for (double x : a) {
-        inter += b.count(x);
+    for (const double x : a) {
+        inter += b.contains(x);
     }
     const double union_len = a.size() + b.size() - inter;
     if (union_len < min_support) {
@@ -94,13 +95,9 @@ static double jaccard_coef_weighted(const Row &u, const Row &v, const double min
 }
 
 /// A negative min_support selects each metric's Python default (1, or 10 for weighted).
-Matrix pairwise_proximity(const Matrix &m, const std::string &metric, double min_support) {
-    for (const auto &r : m) {
-        for (const double x : r) {
-            if (x < 0) {
-                throw std::invalid_argument("Matrix cannot have negative numbers");
-            }
-        }
+Matrix pairwise_proximity(const Matrix &m, const std::string_view metric, double min_support) {
+    if (std::ranges::any_of(m | std::views::join, [](const double x) { return x < 0; })) {
+        throw std::invalid_argument("Matrix cannot have negative numbers");
     }
 
     double (*coef)(const Row &, const Row &, double);

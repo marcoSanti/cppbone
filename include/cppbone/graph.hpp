@@ -5,10 +5,14 @@
 /// helpers.
 
 #include <cstdint>
+#include <functional>
 #include <iosfwd>
 #include <limits>
 #include <map>
+#include <ranges>
+#include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -23,8 +27,15 @@ constexpr double INF = std::numeric_limits<double>::infinity();
 /// @brief Attributes of a node or edge, by name.
 ///
 /// Values are doubles; booleans are stored as 1.0 / 0.0 and a missing value reads as NaN (like
-/// pandas).
-using Attrs = std::map<std::string, double>;
+/// pandas). The comparator is transparent, so lookups take a std::string_view (or a literal)
+/// without building a std::string.
+using Attrs = std::map<std::string, double, std::less<>>;
+
+/// @brief One entry of a node's adjacency list.
+struct Adjacent {
+    int node; ///< The neighbour.
+    int edge; ///< Id of the edge leading to it.
+};
 
 /// @brief An edge as listed by Graph::edges(): its endpoints, in iteration order, and its id.
 struct EdgeRef {
@@ -65,7 +76,7 @@ public:
     /// @brief Adds a node, or finds it if the label exists.
     /// @param label Node label.
     /// @return The node's index.
-    int add_node(const std::string &label);
+    int add_node(std::string_view label);
 
     /// @brief Adds an edge between two labels, creating the nodes as needed.
     ///
@@ -74,7 +85,7 @@ public:
     /// @param v Label of the second endpoint.
     /// @param attrs Attributes to set on the edge.
     /// @return The edge id.
-    int add_edge(const std::string &u, const std::string &v, const Attrs &attrs = {});
+    int add_edge(std::string_view u, std::string_view v, const Attrs &attrs = {});
 
     /// @brief Adds an edge between two existing nodes, or updates the attributes of the existing
     /// edge.
@@ -90,69 +101,73 @@ public:
 
     /// @brief Removes many edges in one pass, with the same result as calling remove_edge on each.
     /// @param drop Indexed by edge id; the edges with a non-zero entry are removed.
-    void remove_edges(const std::vector<char> &drop);
+    void remove_edges(std::span<const char> drop);
 
     /// @brief Returns the number of nodes.
     /// @return Node count.
-    int number_of_nodes() const { return (int) labels_.size(); }
+    [[nodiscard]] int number_of_nodes() const { return static_cast<int>(labels_.size()); }
+
+    /// @brief Returns the node indices, for range-based loops.
+    /// @return The range 0..number_of_nodes()-1.
+    [[nodiscard]] auto nodes() const { return std::views::iota(0, number_of_nodes()); }
 
     /// @brief Returns the number of edges.
     /// @return Edge count (removed edges excluded).
-    int number_of_edges() const { return n_edges_; }
+    [[nodiscard]] int number_of_edges() const { return n_edges_; }
 
     /// @brief Looks up a node by label.
     /// @param label Node label.
     /// @return The node's index, -1 if absent.
-    int node(const std::string &label) const;
+    [[nodiscard]] int node(std::string_view label) const;
 
     /// @brief Returns a node's label.
     /// @param u Node index.
     /// @return The label.
-    const std::string &label(int u) const { return labels_[u]; }
+    [[nodiscard]] const std::string &label(int u) const { return labels_[u]; }
 
     /// @brief Looks up the edge between two nodes.
     /// @param u One endpoint.
     /// @param v The other endpoint.
     /// @return The edge id, -1 if absent.
-    int find_edge(int u, int v) const;
+    [[nodiscard]] int find_edge(int u, int v) const;
 
     /// @brief Tells whether two nodes are adjacent.
     /// @param u One endpoint.
     /// @param v The other endpoint.
     /// @return true if the edge exists.
-    bool has_edge(int u, int v) const { return find_edge(u, v) >= 0; }
+    [[nodiscard]] bool has_edge(int u, int v) const { return find_edge(u, v) >= 0; }
 
     /// @brief Lists every edge once, in networkx order (by first endpoint, then adjacency order).
     /// @return The edges.
-    std::vector<EdgeRef> edges() const;
+    [[nodiscard]] std::vector<EdgeRef> edges() const;
 
     /// @brief Returns a node's adjacency list.
     /// @param u Node index.
-    /// @return (neighbour, edge id) pairs in insertion order; a self-loop appears once.
-    const std::vector<std::pair<int, int>> &adj(int u) const { return adj_[u]; }
+    /// @return The neighbours and edge ids in insertion order; a self-loop appears once.
+    [[nodiscard]] std::span<const Adjacent> adj(int u) const { return adj_[u]; }
 
     /// @brief Returns a node's degree.
     /// @param u Node index.
     /// @return Number of incident edges.
-    int degree(int u) const { return (int) adj_[u].size(); }
+    [[nodiscard]] int degree(int u) const { return static_cast<int>(adj_[u].size()); }
 
     /// @brief Returns a node's strength.
     /// @param u Node index.
     /// @param weight Attribute to sum; a missing value counts as 1 and a self-loop twice, like
     /// networkx.
     /// @return Sum of the attribute over the incident edges.
-    double degree(int u, const std::string &weight) const;
+    [[nodiscard]] double degree(int u, std::string_view weight) const;
 
     /// @brief Returns an edge's endpoints.
     /// @param id Edge id.
     /// @return The endpoints in the order the edge was added.
-    std::pair<int, int> ends(int id) const { return ends_[id]; }
+    [[nodiscard]] std::pair<int, int> ends(int id) const { return ends_[id]; }
 
     /// @brief Reads an edge attribute.
     /// @param id Edge id.
     /// @param key Attribute name.
     /// @return The value, NaN when missing.
-    double get(int id, const std::string &key) const;
+    [[nodiscard]] double get(int id, std::string_view key) const;
 
     /// @brief Writes an edge attribute.
     ///
@@ -160,28 +175,28 @@ public:
     /// @param id Edge id.
     /// @param key Attribute name.
     /// @param value New value.
-    void set(int id, const std::string &key, double value) { attrs_[id][key] = value; }
+    void set(int id, std::string_view key, double value) { assign(attrs_[id], key, value); }
 
     /// @brief Returns all attributes of an edge.
     /// @param id Edge id.
     /// @return The attribute map.
-    const Attrs &edge_attrs(int id) const { return attrs_[id]; }
+    [[nodiscard]] const Attrs &edge_attrs(int id) const { return attrs_[id]; }
 
     /// @brief Reads one attribute of every edge.
     /// @param key Attribute name.
     /// @param missing Value used where the attribute is absent.
     /// @return Values indexed by edge id (size edge_capacity()).
-    std::vector<double> edge_values(const std::string &key, double missing = 1.0) const;
+    [[nodiscard]] std::vector<double> edge_values(std::string_view key, double missing = 1.0) const;
 
     /// @brief Returns the size of per-edge arrays: one past the largest edge id ever used.
     /// @return The capacity.
-    int edge_capacity() const { return (int) ends_.size(); }
+    [[nodiscard]] int edge_capacity() const { return static_cast<int>(ends_.size()); }
 
     /// @brief Reads a node attribute.
     /// @param u Node index.
     /// @param key Attribute name.
     /// @return The value, NaN when missing.
-    double node_get(int u, const std::string &key) const;
+    [[nodiscard]] double node_get(int u, std::string_view key) const;
 
     /// @brief Writes a node attribute.
     ///
@@ -189,17 +204,17 @@ public:
     /// @param u Node index.
     /// @param key Attribute name.
     /// @param value New value.
-    void node_set(int u, const std::string &key, double value) { node_attrs_[u][key] = value; }
+    void node_set(int u, std::string_view key, double value) { assign(node_attrs_[u], key, value); }
 
     /// @brief Returns all attributes of a node.
     /// @param u Node index.
     /// @return The attribute map.
-    const Attrs &node_attrs(int u) const { return node_attrs_[u]; }
+    [[nodiscard]] const Attrs &node_attrs(int u) const { return node_attrs_[u]; }
 
     /// @brief Induced subgraph on the kept nodes, preserving node order, edge order and attributes.
     /// @param keep Indexed by node; true keeps the node.
     /// @return The subgraph, with nodes renumbered.
-    Graph subgraph(const std::vector<bool> &keep) const;
+    [[nodiscard]] Graph subgraph(const std::vector<bool> &keep) const;
 
     /// @brief Reads an edge list with a header that has "source" and "target" columns.
     ///
@@ -245,6 +260,18 @@ private:
     /// @return The smaller index in the high 32 bits, the larger in the low 32 bits.
     static std::uint64_t key(int u, int v);
 
+    /// @brief Sets an attribute, building the std::string key only when the attribute is new.
+    /// @param attrs Attribute map.
+    /// @param key Attribute name.
+    /// @param value New value.
+    static void assign(Attrs &attrs, std::string_view key, double value) {
+        if (const auto it = attrs.find(key); it != attrs.end()) {
+            it->second = value;
+        } else {
+            attrs.emplace(key, value);
+        }
+    }
+
     /// @brief Inserts the rows parsed by read_csv in file order, moving their attributes into the
     /// graph.
     /// @param rows Parsed rows; their attributes are consumed.
@@ -255,13 +282,24 @@ private:
     /// @return Shard number in [0, EDGE_SHARDS).
     static int shard(std::uint64_t k) { return int((k * 0x9E3779B97F4A7C15ull) >> 56); }
 
-    std::vector<std::string> labels_;                   ///< Label of every node.
-    std::unordered_map<std::string, int> index_;        ///< Label to node index.
-    std::vector<std::vector<std::pair<int, int>>> adj_; ///< (neighbour, edge id) lists per node.
-    std::vector<Attrs> node_attrs_;                     ///< Attributes of every node.
-    std::vector<std::pair<int, int>> ends_; ///< Endpoints of every edge id, removed ones included.
-    std::vector<Attrs> attrs_;              ///< Attributes of every edge id.
-    static constexpr int EDGE_SHARDS = 256; ///< Number of edge-index shards.
+    /// @brief Transparent string hash, so the label index is searched with a std::string_view.
+    struct LabelHash {
+        using is_transparent = void; ///< Enables heterogeneous lookup.
+        /// @brief Hashes a label.
+        /// @param s Label.
+        /// @return Its hash.
+        std::size_t operator()(std::string_view s) const {
+            return std::hash<std::string_view>{}(s);
+        }
+    };
+
+    std::vector<std::string> labels_; ///< Label of every node.
+    std::unordered_map<std::string, int, LabelHash, std::equal_to<>> index_; ///< Label to index.
+    std::vector<std::vector<Adjacent>> adj_; ///< Adjacency list of every node.
+    std::vector<Attrs> node_attrs_;          ///< Attributes of every node.
+    std::vector<std::pair<int, int>> ends_;  ///< Endpoints of every edge id, removed ones included.
+    std::vector<Attrs> attrs_;               ///< Attributes of every edge id.
+    static constexpr int EDGE_SHARDS = 256;  ///< Number of edge-index shards.
     /// @brief Node-pair key to edge id, sharded so large graphs can copy the shards in parallel.
     std::vector<std::unordered_map<std::uint64_t, int>> edge_index_ =
         std::vector<std::unordered_map<std::uint64_t, int>>(EDGE_SHARDS);
