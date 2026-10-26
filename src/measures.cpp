@@ -5,6 +5,10 @@
 #include <cmath>
 #include <numeric>
 
+#include <boost/graph/breadth_first_search.hpp>
+#include <boost/graph/visitors.hpp>
+
+#include "boost_graph.hpp"
 #include "detail.hpp"
 
 namespace cppbone {
@@ -67,20 +71,18 @@ double reachability(const Graph&, const Graph& g) {
 double number_connected_components(const Graph&, const Graph& g) { return connected_components(g).size(); }
 
 double diameter(const Graph&, const Graph& g) {
-    Graph l = lcc(g);  // unweighted, as igraph's diameter(directed=False, unconn=True)
-    int n = l.number_of_nodes(), best = 0;
+    auto b = detail::to_boost(lcc(g));  // unweighted, as igraph's diameter(directed=False, unconn=True)
+    int n = (int)boost::num_vertices(b), best = 0;
 #pragma omp parallel
     {
-        std::vector<int> dist(n, -1), q;
+        std::vector<int> hops(n);
         int local = 0;
 #pragma omp for schedule(dynamic, 16)
         for (int s = 0; s < n; ++s) {
-            for (int v : q) dist[v] = -1;  // reset what the previous source reached
-            q.assign(1, s);
-            dist[s] = 0;
-            for (size_t i = 0; i < q.size(); ++i)
-                for (auto [v, id] : l.adj(q[i]))
-                    if (dist[v] < 0) dist[v] = dist[q[i]] + 1, local = std::max(local, dist[v]), q.push_back(v);
+            std::fill(hops.begin(), hops.end(), 0);
+            boost::breadth_first_search(
+                b, s, boost::visitor(boost::make_bfs_visitor(boost::record_distances(hops.data(), boost::on_tree_edge()))));
+            local = std::max(local, *std::max_element(hops.begin(), hops.end()));
         }
 #pragma omp critical(cppbone_diameter)
         best = std::max(best, local);

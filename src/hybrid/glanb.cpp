@@ -1,12 +1,13 @@
 /// @file
-/// @brief Globally and Locally Adaptive Backbone (hybrid/glanb.py).
+/// @brief Globally and Locally Adaptive Backbone (hybrid/glanb.py), on Boost's Dijkstra.
 
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
-#include <queue>
-#include <tuple>
+#include <boost/graph/dijkstra_shortest_paths.hpp>
+#include <boost/property_map/function_property_map.hpp>
 
+#include "boost_graph.hpp"
 #include "cppbone/cppbone.hpp"
 
 namespace cppbone {
@@ -35,52 +36,67 @@ static int cmp_epsilon(const double a, const double b) {
     return equal ? 0 : (diff < 0 ? -1 : 1);
 }
 
+/// @brief Records, during Boost's Dijkstra, the settle order and every predecessor of each node in the shortest-path
+///        DAG (ties within igraph's tolerance included).
+struct DagRecorder : boost::default_dijkstra_visitor {
+    const std::vector<double> *length;    ///< Edge lengths by edge id.
+    const double *dist;                   ///< The search's distance map.
+    std::vector<std::vector<int>> *pred;  ///< Predecessors of every node.
+    std::vector<int> *order;              ///< Nodes in settle order.
+
+    /// @brief Records a node as settled.
+    /// @param u Node.
+    void examine_vertex(detail::BoostGraph::vertex_descriptor u, const detail::BoostGraph &) const {
+        order->push_back(static_cast<int>(u));
+    }
+
+    /// @brief A strictly shorter path to the target: its source becomes the only predecessor.
+    /// @param e Edge.
+    /// @param b Graph.
+    void edge_relaxed(detail::BoostGraph::edge_descriptor e, const detail::BoostGraph &b) const {
+        (*pred)[boost::target(e, b)].assign(1, static_cast<int>(boost::source(e, b)));
+    }
+
+    /// @brief A path to an unsettled target that is not shorter: an equally short one adds a predecessor.
+    /// @param e Edge.
+    /// @param b Graph.
+    void edge_not_relaxed(detail::BoostGraph::edge_descriptor e, const detail::BoostGraph &b) const {
+        const auto u = boost::source(e, b), v = boost::target(e, b);
+        const double alt = dist[u] + (*length)[boost::get(boost::edge_index, b, e)];
+        if (std::isfinite(alt) && cmp_epsilon(alt, dist[v]) == 0) {
+            (*pred)[v].push_back(static_cast<int>(u));
+        }
+    }
+};
+
 /// @brief Counts the shortest paths from a source per first hop, without enumerating them.
 ///
 /// Gives the numbers igraph's get_all_shortest_paths(source) would list: paths[x] counts the
-/// shortest-path-DAG paths starting at x, so the paths through first hop v number paths[v].
-/// @param g Graph.
+/// shortest-path-DAG paths starting at x, so the paths through first hop v number paths[v]. The DAG comes from Boost's
+/// Dijkstra with igraph's tolerant comparison of lengths.
+/// @param bg Graph from detail::to_boost().
 /// @param source Start node.
 /// @param distance Edge lengths indexed by edge id.
 /// @param pred Per-node scratch (one vector per node); receives each node's predecessors in the
 /// DAG.
 /// @return paths[x] for every node; paths[source] - 1 is the number of shortest paths from source.
-static std::vector<double> paths_from(const Graph &g, int source,
+static std::vector<double> paths_from(const detail::BoostGraph &bg, int source,
                                       const std::vector<double> &distance,
                                       std::vector<std::vector<int>> &pred) {
-    const int n = g.number_of_nodes();
+    const int n = static_cast<int>(boost::num_vertices(bg));
     std::vector dist(n, INF);
-    std::vector done(n, false);
     std::vector<int> order;
     for (auto &p : pred) {
         p.clear();
     }
-    using Item = std::pair<double, int>;
-    std::priority_queue<Item, std::vector<Item>, std::greater<>> q;
-    dist[source] = 0;
-    q.emplace(0.0, source);
-    while (!q.empty()) {
-        auto [d, v] = q.top();
-        q.pop();
-        if (done[v]) {
-            continue;
-        }
-        done[v] = true;
-        order.push_back(v);
-        for (auto [u, id] : g.adj(v)) {
-            if (done[u]) {
-                continue;
-            }
-            double alt = d + distance[id];
-            if (const int c = std::isinf(dist[u]) ? -1 : cmp_epsilon(alt, dist[u]); c < 0) {
-                dist[u] = alt;
-                pred[u].assign(1, v);
-                q.emplace(alt, u);
-            } else if (c == 0) {
-                pred[u].push_back(v);
-            }
-        }
-    }
+    using Edge = detail::BoostGraph::edge_descriptor;
+    auto edge_id = boost::get(boost::edge_index, bg);
+    auto length  = boost::make_function_property_map<Edge>([&](const Edge &e) { return distance[edge_id[e]]; });
+    auto less    = [](double a, double b) { return cmp_epsilon(a, b) < 0; };
+    boost::dijkstra_shortest_paths(
+        bg, source,
+        boost::weight_map(length).distance_map(dist.data()).distance_compare(less).distance_inf(INF).distance_zero(0.0)
+            .visitor(DagRecorder{{}, &distance, dist.data(), &pred, &order}));
     std::vector<double> paths(n, 0);
     for (auto it = order.rbegin(); it != order.rend(); ++it) {
         paths[*it] += 1;
@@ -100,6 +116,7 @@ Backbone glanb(const Graph &data, double c) {
         g.set(edges[i].id, "distance", 1 / g.get(edges[i].id, "weight"));
     }
     const auto distance = g.edge_values("distance");
+    const auto bg       = detail::to_boost(g);
     const int n         = g.number_of_nodes();
     // si[2 id + side]: S_ij computed from endpoint `side` (0 = ends().first), NaN when that
     // endpoint is skipped.
@@ -113,7 +130,7 @@ Backbone glanb(const Graph &data, double c) {
             if (k_i <= 1) {
                 continue;
             }
-            auto paths        = paths_from(g, source, distance, pred);
+            auto paths        = paths_from(bg, source, distance, pred);
             const double g_is = paths[source] - 1;
             for (auto [v, id] : g.adj(source)) {
                 const bool first_hop =

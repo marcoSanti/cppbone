@@ -442,9 +442,9 @@ double transitivity(const Graph& original, const Graph& graph);
 /// @name Utilities (utils/utils.py)
 /// @{
 
-/// @brief Connected components, each listed in breadth-first order from its lowest node.
+/// @brief Connected components (Boost.Graph).
 /// @param g Graph.
-/// @return The components, ordered by their lowest node.
+/// @return The components, ordered by their lowest node, each listing its nodes in increasing order.
 std::vector<std::vector<int>> connected_components(const Graph& g);
 
 /// @brief Largest connected component (the first one on ties).

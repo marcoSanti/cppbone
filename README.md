@@ -16,7 +16,7 @@ method (see [Benchmark](#benchmark)).
 - The `distanceclosure` toolkit: metric/ultrametric backbones, distance closure, s/b-values, pairwise proximity
 - Optional Python module `cppbone` that accepts networkx graphs or pandas edge lists
 - OpenMP parallelism (optional) across nodes, edges and shortest-path sources
-- No runtime dependencies besides the OpenMP runtime when it is enabled
+- Graph algorithms and statistics from maintained libraries: Boost.Graph, Boost.Math and LAPACK (e.g. OpenBLAS)
 
 ## Methods
 
@@ -28,7 +28,16 @@ method (see [Benchmark](#benchmark)).
 
 ## Build
 
-Requires CMake ≥ 3.16 and a C++17 compiler.
+Requires CMake ≥ 3.16 and a C++17 compiler. The library uses Boost ≥ 1.80 (the header-only Graph and Math libraries)
+and a LAPACK. CMake takes the installed ones and otherwise downloads Boost 1.90 and builds OpenBLAS 0.3.33, which
+takes a few minutes; installing them first is faster:
+
+```sh
+sudo apt install libboost-dev libopenblas-dev   # Debian / Ubuntu
+brew install boost                              # macOS (LAPACK comes with the system, in Accelerate)
+```
+
+Then:
 
 ```sh
 cmake -S . -B build
@@ -52,17 +61,18 @@ When the compiler supports OpenMP, the library is built with it (`-DCPPBONE_OPEN
 no OpenMP, so on macOS it runs single-threaded unless libomp is installed). The thread count is `OMP_NUM_THREADS`,
 `cb::set_num_threads(n)`, or `-j N` on the CLI. What runs in parallel:
 
-- the per-source shortest-path searches of `betweenness`, `h_backbone`, `high_salience_skeleton`, `glanb`,
-  `metric_distance_backbone`, `ultrametric_distance_backbone`, `all_pairs_dijkstra_path_length` and `diameter`
+- the per-source shortest-path searches (Boost's Dijkstra and breadth-first search) of `high_salience_skeleton`,
+  `glanb`, `metric_distance_backbone`, `ultrametric_distance_backbone`, `all_pairs_dijkstra_path_length` and
+  `diameter`
 - the per-node and per-edge loops of the other methods, the measures, the Sinkhorn iterations of
   `doubly_stochastic` and the Hessian of `ecm`
 - CSV parsing, graph copies and destruction
 
 Results do not depend on the thread count: each edge or node is computed on its own, and values that come from
-several places are combined in the sequential order. The exception is `betweenness` (and so `h_backbone`), whose
-per-source contributions are summed in whatever order the threads finish: values can differ in the last bits
-(about 1e-15 relative) between runs. `maximum_spanning_tree` and `pmfg` are sequential algorithms, and Louvain in
-`modularity_backbone` stays sequential so the partition does not depend on the schedule.
+several places are combined in the sequential order. `betweenness` and `h_backbone` use Boost's Brandes algorithm,
+which is single-threaded. `maximum_spanning_tree` and `pmfg` are sequential algorithms (Boost's Kruskal and
+Boyer-Myrvold planarity test), and Louvain in `modularity_backbone` stays sequential so the partition does not
+depend on the schedule. LAPACK (the `ecm` solver) uses its own threads when it is OpenBLAS or MKL.
 
 ## Usage (C++)
 
@@ -189,9 +199,10 @@ Two GitHub Actions workflows are in `.github/workflows/`:
 
 ## Differences from Python
 
-- `marginal_likelihood`, `noise_corrected`: binomial tails are summed directly instead of going through scipy and
-  statsmodels. They agree to ~1e-9, and against mpmath the C++ values are the more accurate ones.
-- `ecm`: Levenberg–Marquardt with an analytic Hessian replaces trust-krylov with JAX. It reaches the same optimum
+- `marginal_likelihood`, `noise_corrected`: binomial tails come from Boost.Math (which scipy also uses for its
+  binomial distribution) instead of scipy and statsmodels. The p-values agree to ~1e-9.
+- `ecm`: Levenberg–Marquardt with an analytic Hessian (solved with LAPACK) replaces trust-krylov with JAX. It
+  reaches the same optimum
   (p-values within 1e-5 relative; Python itself stops at 9% max relative error). `seed` replaces the unseeded
   numpy random start.
 - `modularity_backbone`: Louvain uses `std::mt19937`, not numpy's `RandomState(123)`, so the partition and
@@ -205,7 +216,7 @@ Two GitHub Actions workflows are in `.github/workflows/`:
   (Python's version raises an error in that case).
 - Not ported: `visualize.py` (matplotlib plotting), the directed `MLF` variant (it cannot run in Python either),
   the `maxent_graph` JAX helpers, the sparse-matrix input of `pairwise_proximity`, the dict/matrix conversion
-  helpers in `distanceclosure/utils.py`, and the Cython Dijkstra (the C++ Dijkstra replaces it).
+  helpers in `distanceclosure/utils.py`, and the Cython Dijkstra (Boost's Dijkstra replaces it).
 
 ## Layout
 
@@ -228,10 +239,11 @@ The original NetBone package is by Ali Yassin and its contributors. The method i
 Python sources, including the code it adapted from
 [Doubly Stochastic / Noise Corrected](https://www.michelecoscia.com/?page_id=287),
 [Marginal Likelihood](https://github.com/naviddianati/GraphPruning) and
-[distanceclosure](https://github.com/rionbr/distanceclosure). Several graph algorithms are translated from
-NetworkX and python-louvain (see `LICENSE`).
+[distanceclosure](https://github.com/rionbr/distanceclosure). Louvain is translated from python-louvain (see
+`LICENSE`); the other graph algorithms come from [Boost.Graph](https://www.boost.org/libs/graph), the binomial
+distribution from [Boost.Math](https://www.boost.org/libs/math), and the dense solver from LAPACK.
 
 ## License
 
-MIT, like NetBone. See [LICENSE](LICENSE), which also reproduces the BSD-3-Clause notices of NetworkX and
-python-louvain.
+MIT, like NetBone. See [LICENSE](LICENSE), which also reproduces the BSD-3-Clause notice of python-louvain and
+lists the licenses of the build dependencies (Boost, OpenBLAS, pybind11).

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <numeric>
 
+#include "boost_graph.hpp"
 #include "detail.hpp"
 
 namespace cppbone {
@@ -36,6 +37,7 @@ static Graph compute_backbone(const Graph& d, const std::string& weight, Disjunc
     std::stable_sort(ordered.begin(), ordered.end(), [&](int a, int b) { return strength[a] > strength[b]; });
 
     auto w = g.edge_values(weight);
+    auto b = detail::to_boost(g);
     std::vector<char> removed(g.edge_capacity(), 0);
     // Per batch position: the neighbour slots (index into adj) whose edge has a strictly shorter path, and the
     // path lengths for the s-values.
@@ -44,7 +46,7 @@ static Graph compute_backbone(const Graph& d, const std::string& weight, Disjunc
     detail::Errors errors;
 #pragma omp parallel
     {
-        detail::DijkstraWorkspace ws(n);
+        detail::ShortestPaths sp;
         for (int b0 = 0; b0 < n; b0 += batch) {
             int b1 = std::min(n, b0 + batch);
 #pragma omp for schedule(dynamic, 1)
@@ -57,11 +59,11 @@ static Graph compute_backbone(const Graph& d, const std::string& weight, Disjunc
                     for (auto [v, id] : g.adj(src))
                         if (!removed[id]) cutoff = std::max(cutoff, w[id]);
                     if (cutoff == -INF) return;
-                    detail::dijkstra(g, src, w, disjunction, ws, cutoff, &removed);
+                    detail::dijkstra(b, src, w, disjunction, sp, cutoff, &removed);
                     const auto& adj = g.adj(src);
                     for (int k = 0; k < (int)adj.size(); ++k)
-                        if (!removed[adj[k].second] && ws.dist[adj[k].first] < w[adj[k].second])
-                            found.emplace_back(k, ws.dist[adj[k].first]);
+                        if (!removed[adj[k].second] && sp.dist[adj[k].first] < w[adj[k].second])
+                            found.emplace_back(k, sp.dist[adj[k].first]);
                 });
             // implicit barrier; one thread replays the batch in order: an edge leaves at its first endpoint
 #pragma omp single

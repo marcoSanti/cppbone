@@ -23,44 +23,34 @@ namespace {
 /// @brief Machine epsilon, the margin that keeps the initial guess inside the parameter bounds.
 constexpr double EPS = std::numeric_limits<double>::epsilon();
 
-/// @brief Solves H d = r by Cholesky factorisation (the column updates run in parallel).
-/// @param H Symmetric n x n matrix, row-major (taken by value: it is factorised in place).
+}  // namespace
+
+/// @brief LAPACK dposv (Fortran interface): solves A X = B for a symmetric positive definite A by Cholesky.
+/// @param uplo 'U' or 'L': which triangle of A (column-major) is read.
+/// @param n Order of A.
+/// @param nrhs Number of right-hand sides.
+/// @param a Matrix, overwritten by its Cholesky factor.
+/// @param lda Leading dimension of a.
+/// @param b Right-hand sides, overwritten by the solution when info is 0.
+/// @param ldb Leading dimension of b.
+/// @param info 0 on success, > 0 when A is not positive definite.
+extern "C" void dposv_(const char *uplo, const int *n, const int *nrhs, double *a, const int *lda, double *b,
+                       const int *ldb, int *info);
+
+namespace {
+
+/// @brief Solves H d = r with LAPACK's Cholesky solver (dposv).
+/// @param H Symmetric n x n matrix (taken by value: LAPACK factorises it in place).
 /// @param r Right-hand side; replaced by the solution d.
 /// @param n Matrix size.
-/// @return false if H is not positive definite (r is then partially overwritten).
+/// @return false if H is not positive definite.
 bool cholesky_solve(std::vector<double> H, std::vector<double> &r, int n) {
-    for (int j = 0; j < n; ++j) {
-        double d = H[j * n + j];
-        for (int k = 0; k < j; ++k) {
-            d -= H[j * n + k] * H[j * n + k];
-        }
-        if (!(d > 0)) {
-            return false;
-        }
-        d            = std::sqrt(d);
-        H[j * n + j] = d;
-#pragma omp parallel for schedule(static) if (n - j > 256)
-        for (int i = j + 1; i < n; ++i) {
-            double v = H[i * n + j];
-            for (int k = 0; k < j; ++k) {
-                v -= H[i * n + k] * H[j * n + k];
-            }
-            H[i * n + j] = v / d;
-        }
-    }
-    for (int i = 0; i < n; ++i) {
-        for (int k = 0; k < i; ++k) {
-            r[i] -= H[i * n + k] * r[k];
-        }
-        r[i] /= H[i * n + i];
-    }
-    for (int i = n - 1; i >= 0; --i) {
-        for (int k = i + 1; k < n; ++k) {
-            r[i] -= H[k * n + i] * r[k];
-        }
-        r[i] /= H[i * n + i];
-    }
-    return true;
+    // H is symmetric, so row-major and column-major storage are the same matrix.
+    const char uplo = 'U';
+    const int nrhs  = 1;
+    int info        = 0;
+    dposv_(&uplo, &n, &nrhs, H.data(), &n, r.data(), &n, &info);
+    return info == 0;
 }
 
 /// @brief The ECM likelihood for one network: observed sequences, derivatives and the solver.

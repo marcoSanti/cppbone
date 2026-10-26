@@ -7,18 +7,11 @@
 #include <map>
 #include <numeric>
 
+#include <boost/pending/disjoint_sets.hpp>
+
 #include "detail.hpp"
 
 namespace cppbone {
-
-/// @brief Union-find root lookup with path halving.
-/// @param p Parent array; updated to shorten the paths.
-/// @param x Element.
-/// @return The root of x's set.
-static int find(std::vector<int>& p, int x) {
-    while (p[x] != x) x = p[x] = p[p[x]];
-    return x;
-}
 
 Backbone doubly_stochastic(const Graph& data) {
     // The Python version works on nx.to_pandas_edgelist rows, so edge orientation follows Graph::edges().
@@ -106,8 +99,9 @@ Backbone doubly_stochastic(const Graph& data) {
     std::map<std::string, int> ids;
     for (const auto& r : merged) ids.emplace(r.source, (int)ids.size()), ids.emplace(r.target, (int)ids.size());
     int doubly_nodes = (int)ids.size();
-    std::vector<int> parent(doubly_nodes);
-    std::iota(parent.begin(), parent.end(), 0);
+    std::vector<int> rank(doubly_nodes), parent(doubly_nodes);
+    boost::disjoint_sets<int*, int*> sets(rank.data(), parent.data());
+    for (int x = 0; x < doubly_nodes; ++x) sets.make_set(x);
     std::vector<bool> present(doubly_nodes, false);
     int nodes = 0, components = 0;
     for (size_t i = 0; components != 1 || nodes < doubly_nodes; ++i) {
@@ -115,8 +109,8 @@ Backbone doubly_stochastic(const Graph& data) {
         int a = ids[merged[i].source], b = ids[merged[i].target];
         for (int x : {a, b})
             if (!present[x]) present[x] = true, ++nodes, ++components;
-        int ra = find(parent, a), rb = find(parent, b);
-        if (ra != rb) parent[ra] = rb, --components;
+        int ra = sets.find_set(a), rb = sets.find_set(b);
+        if (ra != rb) sets.link(ra, rb), --components;
         merged[i].in_backbone = true;
     }
 

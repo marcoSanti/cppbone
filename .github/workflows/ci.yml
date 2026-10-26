@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# Dependencies come from the system package managers wherever there is one (apt on Linux, brew on macOS), so CMake
+# does not have to download Boost or build OpenBLAS. Windows has neither: CMake fetches them, and the build
+# directories are cached between runs so that happens once per CMakeLists.txt change. ccache keeps compiled objects
+# between runs on Linux and macOS (Boost.Graph headers are slow to compile).
+
 jobs:
   cpp:
     name: C++ (${{ matrix.os }})
@@ -14,6 +19,26 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+      - name: Install Boost and OpenBLAS
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libboost-dev libopenblas-dev
+      - name: Install Boost (LAPACK comes from Accelerate)
+        if: runner.os == 'macOS'
+        run: brew install boost
+      - name: ccache
+        if: runner.os != 'Windows'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: cpp-${{ matrix.os }}
+      - name: Use ccache
+        if: runner.os != 'Windows'
+        run: echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+      - name: Cache the build directory (fetched Boost and OpenBLAS)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: cpp-${{ matrix.os }}-${{ hashFiles('CMakeLists.txt') }}
       - name: Configure
         run: cmake -S . -B build
       - name: Build
@@ -35,6 +60,26 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+      - name: Install Boost and OpenBLAS
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libboost-dev libopenblas-dev
+      - name: Install Boost (LAPACK comes from Accelerate)
+        if: runner.os == 'macOS'
+        run: brew install boost
+      - name: ccache
+        if: runner.os != 'Windows'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: regression-${{ matrix.os }}
+      - name: Use ccache
+        if: runner.os != 'Windows'
+        run: echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
+      - name: Cache the build directory (fetched Boost and OpenBLAS)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: build-regression
+          key: regression-${{ matrix.os }}-${{ hashFiles('CMakeLists.txt') }}
       - name: Build and run the regression suite
         shell: bash
         run: tests/run_regression.sh
@@ -44,6 +89,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Boost and OpenBLAS
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libboost-dev libopenblas-dev
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: python
+      - name: Use ccache
+        run: echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.15"

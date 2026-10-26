@@ -24,26 +24,14 @@ SOFTWARE.
 -------------------------------------------------------------------------------
 Third-party notices
 
-Parts of this port are translated from the following BSD-3-Clause projects.
-Their notices are reproduced as their licenses require.
-
-* NetworkX (edge betweenness in structural/betweenness.cpp, the left-right
-  planarity test in structural/pmfg.cpp, Dijkstra in
-  structural/distanceclosure/dijkstra.cpp)
-
-  Copyright (C) 2004-2025, NetworkX Developers
-  Aric Hagberg <hagberg@lanl.gov>
-  Dan Schult <dschult@colgate.edu>
-  Pieter Swart <swart@lanl.gov>
-  All rights reserved.
+Parts of this port are translated from the following BSD-3-Clause project.
+Its notice is reproduced as its license requires.
 
 * python-louvain (Louvain community detection in
   structural/modularity_backbone.cpp)
 
   Copyright (c) 2009, Thomas Aynaud <thomas.aynaud@lip6.fr>
   All rights reserved.
-
-For both projects:
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -70,5 +58,13 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-pybind11 (BSD-3-Clause) is downloaded at build time only when CPPBONE_PYTHON=ON
-and is not distributed with this repository.
+Build dependencies, not distributed with this repository:
+
+* Boost (Boost Software License 1.0, https://www.boost.org/LICENSE_1_0.txt):
+  Boost.Graph and Boost.Math, header-only, compiled into the library.
+* A LAPACK implementation, such as OpenBLAS (BSD-3-Clause,
+  https://github.com/OpenMathLib/OpenBLAS/blob/develop/LICENSE). Wheels built
+  without a system LAPACK, and Linux wheels (through auditwheel), contain
+  OpenBLAS, and its license applies to that copy.
+* pybind11 (BSD-3-Clause), downloaded at build time only when
+  CPPBONE_PYTHON=ON.

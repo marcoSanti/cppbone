@@ -63,6 +63,60 @@ if(NOT SKBUILD)
            -M all --ks all --consensus --progression 0.05,0.1,0.2 -o ${CMAKE_CURRENT_BINARY_DIR}/cli_out)
 endif()
 
+# Boost.Graph and Boost.Math (header-only parts): the graph algorithms (shortest paths, betweenness, spanning tree,
+# planarity, components) and the binomial distribution. A system Boost if found, else the official release.
+find_package(Boost 1.80 CONFIG QUIET COMPONENTS headers)
+if(Boost_FOUND)
+  target_link_libraries(cppbone PRIVATE Boost::headers)
+  message(STATUS "cppbone: using Boost ${Boost_VERSION}")
+else()
+  message(STATUS "cppbone: no system Boost, fetching Boost 1.90 (Graph and Math only)")
+  include(FetchContent)
+  set(BOOST_INCLUDE_LIBRARIES graph math CACHE STRING "" FORCE)
+  set(BOOST_ENABLE_CMAKE ON CACHE BOOL "" FORCE)
+  FetchContent_Declare(Boost
+    URL https://github.com/boostorg/boost/releases/download/boost-1.90.0/boost-1.90.0-cmake.tar.xz
+    URL_HASH SHA256=aca59f889f0f32028ad88ba6764582b63c916ce5f77b31289ad19421a96c555f
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    EXCLUDE_FROM_ALL)
+  FetchContent_MakeAvailable(Boost)
+  target_link_libraries(cppbone PRIVATE Boost::graph Boost::math)
+endif()
+
+# LAPACK for the dense solves (the ECM Hessian): a system LAPACK (OpenBLAS, MKL, Accelerate, netlib; choose with
+# -DBLA_VENDOR=...), else OpenBLAS downloaded and built here (a few minutes).
+find_package(LAPACK QUIET)
+if(LAPACK_FOUND)
+  target_link_libraries(cppbone PRIVATE LAPACK::LAPACK)
+  message(STATUS "cppbone: using LAPACK ${LAPACK_LIBRARIES}")
+else()
+  message(STATUS "cppbone: no system LAPACK, building OpenBLAS 0.3.33")
+  include(FetchContent)
+  # C_LAPACK: LAPACK from its C translation, so no Fortran compiler is needed.
+  set(C_LAPACK ON CACHE BOOL "" FORCE)
+  set(NOFORTRAN ON CACHE BOOL "" FORCE)
+  set(BUILD_WITHOUT_LAPACKE ON CACHE BOOL "" FORCE)
+  # Only LAPACK's Fortran interface (dposv_) is used. Without CBLAS, OpenBLAS also skips its utest/ctest folders,
+  # which would otherwise register tests in this project's ctest that are never built.
+  set(NO_CBLAS ON CACHE BOOL "" FORCE)
+  set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+  set(USE_OPENMP ${OpenMP_CXX_FOUND} CACHE BOOL "" FORCE)  # share the OpenMP runtime instead of OpenBLAS's pthreads
+  # A wheel runs on other machines: include kernels for every CPU and pick one at runtime, instead of tuning for the
+  # build machine (MSVC builds of OpenBLAS do not support this).
+  if(SKBUILD AND NOT MSVC)
+    set(DYNAMIC_ARCH ON CACHE BOOL "" FORCE)
+  endif()
+  FetchContent_Declare(openblas
+    URL https://github.com/OpenMathLib/OpenBLAS/archive/refs/tags/v0.3.33.tar.gz
+    URL_HASH SHA256=6761af1d9f5d353ab4f0b7497be2643313b36c8f31caec0144bfef198e71e6ab
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    EXCLUDE_FROM_ALL)
+  FetchContent_MakeAvailable(openblas)
+  set_target_properties(openblas_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_link_libraries(cppbone PRIVATE openblas_static)
+endif()
+
 # Python module `cppbone`, off by default: cmake -DCPPBONE_PYTHON=ON [-DPython_EXECUTABLE=...]
 option(CPPBONE_PYTHON "Build the cppbone Python module" OFF)
 if(CPPBONE_PYTHON)
