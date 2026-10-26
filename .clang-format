@@ -1,0 +1,19 @@
+BasedOnStyle: LLVM
+Language: Cpp
+
+ColumnLimit: 100
+IndentWidth: 4
+AccessModifierOffset: -4
+
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossComments: true
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossComments: true
+
+InsertBraces: true
+BreakBeforeBraces: Attach
+InsertNewlineAtEOF: true
+LineEnding: LF
+SpaceAfterCStyleCast: true
