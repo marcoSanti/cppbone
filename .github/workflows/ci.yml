@@ -19,7 +19,25 @@ jobs:
       - name: Build
         run: cmake --build build --config Release -j
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure -E regression  # regression has its own job
+
+  # Every function and method/filter combination on data/data.csv against tests/regression/baseline: the C++
+  # snapshot (catches regressions) and the original NetBone results (checks the port). See tests/regression/README.md.
+  regression:
+    name: Regression suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # The C++ snapshot was generated on Linux. Elsewhere std::shuffle and std::uniform_real_distribution are
+    # implemented differently (modularity_backbone, ecm) and macOS builds without OpenMP, so those runs only report.
+    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run the regression suite
+        shell: bash
+        run: tests/run_regression.sh
 
   python:
     name: Python module + cross-check against NetBone
@@ -40,6 +58,6 @@ jobs:
       - name: Build
         run: cmake --build build-py -j
       - name: Test (C++ and Python module)
-        run: ctest --test-dir build-py --output-on-failure
+        run: ctest --test-dir build-py --output-on-failure -E regression
       - name: Cross-check against the Python package
         run: PYTHONPATH=build-py python benchmarks/compare_python.py --check --reps 1

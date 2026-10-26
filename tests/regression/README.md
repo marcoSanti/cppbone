@@ -93,6 +93,14 @@ python tests/regression/python_baseline.py data/data.csv tests/regression
 It takes about a minute (Python's pmfg alone takes ~35 s). netbone 0.2.3's `distanceclosure/closure.py` cannot be
 imported as shipped (it imports a name the package does not export); the script provides that name first.
 
+## Continuous integration
+
+The `regression` job in `.github/workflows/ci.yml` runs `tests/run_regression.sh` on Linux, macOS and Windows.
+Only Linux must pass: the C++ snapshot was generated there, and on the other systems `std::shuffle` and
+`std::uniform_real_distribution` are implemented differently (they drive `modularity_backbone` and `ecm`) and macOS
+builds without OpenMP, so those runs report without failing the workflow. The other CI jobs skip this test in their
+ctest runs (`-E regression`).
+
 ## Adding a case
 
 Add it to `run_all` in `regression.cpp` and to `python_baseline.py` under the same name and layout, then

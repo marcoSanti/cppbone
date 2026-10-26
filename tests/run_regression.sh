@@ -24,6 +24,12 @@ done
 [[ -n "$verbose" ]] && args+=("$verbose")
 
 cmake -S "$root" -B "$build" -DCMAKE_BUILD_TYPE=Release -Wno-deprecated > /dev/null
-cmake --build "$build" --target cppbone_regression -j > /dev/null
+cmake --build "$build" --target cppbone_regression --config Release -j > /dev/null
 
-exec "$build/cppbone_regression" "$root/data/data.csv" "$root/tests/regression" ${args[@]+"${args[@]}"}
+# Single-config generators (Make, Ninja) put the runner in the build directory, Visual Studio in Release/.
+runner="$build/cppbone_regression"
+for candidate in "$build/cppbone_regression" "$build/Release/cppbone_regression.exe" "$build/cppbone_regression.exe"; do
+  if [[ -x "$candidate" ]]; then runner="$candidate"; break; fi
+done
+
+exec "$runner" "$root/data/data.csv" "$root/tests/regression" ${args[@]+"${args[@]}"}
