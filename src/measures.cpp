@@ -8,8 +8,8 @@
 #include <boost/graph/breadth_first_search.hpp>
 #include <boost/graph/visitors.hpp>
 
-#include "boost_graph.hpp"
-#include "detail.hpp"
+#include "../include/cppbone/boost_graph.hpp"
+#include "../include/cppbone/detail.hpp"
 
 namespace cppbone {
 

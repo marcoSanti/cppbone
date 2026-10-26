@@ -7,8 +7,8 @@
 
 namespace cppbone {
 
-double prox2dist(double p) { return p == 0 ? INF : 1 / p - 1; }
+double prox2dist(const double p) { return p == 0 ? INF : 1 / p - 1; }
 
-double dist2prox(double d) { return d == INF ? 0 : 1 / (d + 1); }
+double dist2prox(const double d) { return d == INF ? 0 : 1 / (d + 1); }
 
-}  // namespace cppbone
+} // namespace cppbone

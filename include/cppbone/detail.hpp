@@ -3,7 +3,8 @@
 /// @file
 /// @brief Internal helpers shared by the method implementations: OpenMP glue.
 ///
-/// Loops stay OpenMP 2.0 compatible (signed int indices, no atomic read/write, no min/max reductions) for MSVC.
+/// Loops stay OpenMP 2.0 compatible (signed int indices, no atomic read/write, no min/max
+/// reductions) for MSVC.
 
 #include <exception>
 #include <vector>
@@ -44,23 +45,26 @@ class Errors {
 public:
     /// @brief Runs a callable, recording the exception it throws if it is the first one.
     /// @param f Callable taking no arguments.
-    template <typename F>
-    void run(F&& f) {
+    template <typename F> void run(F &&f) {
         try {
             f();
         } catch (...) {
 #pragma omp critical(cppbone_errors)
-            if (!first_) first_ = std::current_exception();
+            if (!first_) {
+                first_ = std::current_exception();
+            }
         }
     }
 
     /// @brief Rethrows the recorded exception, if any.
     void rethrow() const {
-        if (first_) std::rethrow_exception(first_);
+        if (first_) {
+            std::rethrow_exception(first_);
+        }
     }
 
 private:
-    std::exception_ptr first_;  ///< First exception recorded.
+    std::exception_ptr first_; ///< First exception recorded.
 };
 
-}  // namespace cppbone::detail
+} // namespace cppbone::detail

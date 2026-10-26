@@ -7,7 +7,7 @@
 #include <cfloat>
 #include <cmath>
 
-#include "boost_graph.hpp"
+#include "../../include/cppbone/boost_graph.hpp"
 #include "cppbone/cppbone.hpp"
 
 namespace cppbone {

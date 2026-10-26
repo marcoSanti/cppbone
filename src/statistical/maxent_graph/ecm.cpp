@@ -14,7 +14,7 @@
 #include <random>
 #include <stdexcept>
 
-#include "detail.hpp"
+#include "../../../include/cppbone/detail.hpp"
 
 namespace cppbone {
 
