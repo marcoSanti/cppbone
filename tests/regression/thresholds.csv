@@ -1,0 +1,20 @@
+# threshold_filter value per method, shared by regression.cpp and python_baseline.py.
+# p-value methods use 0.05; the others sit near the 90th percentile of their score on data/data.csv.
+method,value
+disparity,0.05
+lans,0.05
+noise_corrected,0.05
+marginal_likelihood,0.05
+ecm,0.05
+glanb_c1,0.5
+glanb_c0.5,0.5
+betweenness,0.0005
+betweenness_unweighted,0.0003
+betweenness_raw,30
+degree,100
+degree_weighted,100000
+doubly_stochastic,0.05
+global_threshold,10000
+gspar,0.5
+high_salience_skeleton,0.5
+modularity_backbone,100000000

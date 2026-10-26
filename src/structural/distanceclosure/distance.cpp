@@ -14,8 +14,10 @@ namespace cppbone {
 /// @brief One row of a dense matrix.
 using Row = std::vector<double>;
 
-/// @brief Jaccard proximity as scipy computes it: 1 - (positions where the rows differ) / (positions where either
-///        is non-zero).
+/// @brief Jaccard proximity as scipy computes it: 1 - (positions where exactly one row is non-zero) / (positions
+///        where either is non-zero).
+///
+/// Current scipy (1.18) compares the rows as booleans (non-zero or not), not their values.
 /// @param u First row.
 /// @param v Second row.
 /// @param min_support Rows whose sums add up to less than this get 0.
@@ -24,9 +26,9 @@ static double jaccard_coef_scipy(const Row& u, const Row& v, double min_support)
     double su = 0, sv = 0, nonzero = 0, unequal = 0;
     for (size_t i = 0; i < u.size(); ++i) {
         su += u[i], sv += v[i];
-        bool nz = u[i] != 0 || v[i] != 0;
-        nonzero += nz;
-        unequal += nz && u[i] != v[i];
+        bool a = u[i] != 0, b = v[i] != 0;
+        nonzero += a || b;
+        unequal += a != b;
     }
     if (su + sv < min_support) return 0.;
     return 1 - (nonzero ? unequal / nonzero : 0);  // scipy jaccard distance is 0 for two all-zero rows

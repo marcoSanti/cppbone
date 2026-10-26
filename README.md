@@ -33,7 +33,7 @@ Requires CMake ≥ 3.16 and a C++17 compiler.
 ```sh
 cmake -S . -B build
 cmake --build build -j
-ctest --test-dir build                         # self-checks + smoke test of every method on data/data.csv
+ctest --test-dir build                         # self-checks, CLI smoke test, regression suite on data/data.csv
 ./build/cppbone_cli data/data.csv -m high_salience_skeleton   # command-line tool, see below
 ```
 
@@ -215,7 +215,7 @@ src/                library sources; mirrors the Python package file by file
                     (statistical/disparity.py -> src/statistical/disparity.cpp, ...), plus the private detail.hpp
 apps/               cppbone_cli command-line tool
 python/             pybind11 module cppbone
-tests/              C++ self-checks and Python module checks
+tests/              C++ self-checks, Python module checks, regression suite (tests/regression/README.md)
 benchmarks/         cross-check and benchmark against the Python NetBone package
 data/data.csv       NetBone sample network
 pyproject.toml      Python packaging (scikit-build-core) and cibuildwheel settings

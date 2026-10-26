@@ -47,6 +47,18 @@ if(NOT SKBUILD)
   add_executable(test_cppbone tests/test_cppbone.cpp)
   target_link_libraries(test_cppbone PRIVATE cppbone)
   add_test(NAME test_cppbone COMMAND test_cppbone ${CMAKE_CURRENT_SOURCE_DIR}/data/data.csv)
+  # Regression suite: every function and method/filter combination on data/data.csv, checked against the C++
+  # snapshot and the original NetBone results in tests/regression/baseline (see tests/regression/README.md).
+  add_executable(cppbone_regression tests/regression/regression.cpp)
+  target_link_libraries(cppbone_regression PRIVATE cppbone)
+  add_test(NAME regression COMMAND cppbone_regression ${CMAKE_CURRENT_SOURCE_DIR}/data/data.csv
+           ${CMAKE_CURRENT_SOURCE_DIR}/tests/regression)
+  # `cmake --build <dir> --target regression_baseline` rewrites the C++ snapshot after an intended change.
+  add_custom_target(regression_baseline
+    COMMAND cppbone_regression ${CMAKE_CURRENT_SOURCE_DIR}/data/data.csv ${CMAKE_CURRENT_SOURCE_DIR}/tests/regression
+            --write-cpp-baseline
+    DEPENDS cppbone_regression
+    COMMENT "Writing tests/regression/baseline/cpp")
   add_test(NAME test_cli COMMAND cppbone_cli ${CMAKE_CURRENT_SOURCE_DIR}/data/data.csv -q -m all -f fraction -v 0.1
            -M all --ks all --consensus --progression 0.05,0.1,0.2 -o ${CMAKE_CURRENT_BINARY_DIR}/cli_out)
 endif()

@@ -1,0 +1,16 @@
+# Allowed differences between a computed case and a baseline. The last matching line wins.
+# baseline: cpp (snapshot of this library) or python (original NetBone 0.2.3).
+# pattern: case name, '*' matches anything. rel_tol: largest relative difference of numeric values.
+# max_key_diff: keys (edges, nodes, rows) present on one side only. max_flag_diff: differing in_backbone / is_* values.
+baseline,pattern,rel_tol,max_key_diff,max_flag_diff
+# The C++ snapshot must match exactly, except for summation order in parallel betweenness (last bits).
+cpp,*,1e-12,0,0
+# Against Python: same results up to floating-point noise unless listed below.
+python,*,1e-8,0,0
+# Known differences from Python (see "Differences from Python" in the top-level README):
+# ecm: Levenberg-Marquardt replaces scipy trust-krylov; same optimum, p-values within ~1e-5.
+python,method.ecm*,1e-4,0,0
+# modularity_backbone: std::mt19937 replaces numpy RandomState, so Louvain finds another partition.
+python,method.modularity_backbone*,inf,inf,0
+# pmfg: pandas sorts tied weights unstably; C++ sorts stably (26 edges at most on this network).
+python,method.pmfg*,0,26,26

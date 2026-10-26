@@ -1,0 +1,5 @@
+key,density,edge_fraction,node_fraction,weight_fraction,lcc_size,number_connected_components
+High Salience Skeleton Filter,0.0053,0.03347799132052077,0.9184210526315789,0.0964327347107808,75,25
+Maximum Spanning Tree,0.0053,0.03916098367431287,1,0.18604574733613896,380,1
+Original,0.1344,1,1,1,380,1
+Primary Linkage Analysis,0.0052,0.03874767513949163,1,0.17782629499462752,187,5
