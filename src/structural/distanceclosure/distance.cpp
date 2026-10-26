@@ -1,4 +1,7 @@
-// Pairwise Jaccard proximity between the rows of a dense matrix (Rion Brattig Correia).
+/// @file
+/// @brief Pairwise Jaccard proximity between the rows of a dense matrix (Rion Brattig Correia;
+///        distanceclosure/distance.py).
+
 #include <algorithm>
 #include <iostream>
 #include <set>
@@ -8,8 +11,15 @@
 
 namespace cppbone {
 
+/// @brief One row of a dense matrix.
 using Row = std::vector<double>;
 
+/// @brief Jaccard proximity as scipy computes it: 1 - (positions where the rows differ) / (positions where either
+///        is non-zero).
+/// @param u First row.
+/// @param v Second row.
+/// @param min_support Rows whose sums add up to less than this get 0.
+/// @return The proximity; 1 for two all-zero rows.
 static double jaccard_coef_scipy(const Row& u, const Row& v, double min_support) {
     double su = 0, sv = 0, nonzero = 0, unequal = 0;
     for (size_t i = 0; i < u.size(); ++i) {
@@ -22,6 +32,11 @@ static double jaccard_coef_scipy(const Row& u, const Row& v, double min_support)
     return 1 - (nonzero ? unequal / nonzero : 0);  // scipy jaccard distance is 0 for two all-zero rows
 }
 
+/// @brief Binary Jaccard proximity: positions non-zero in both rows over positions non-zero in either.
+/// @param u First row.
+/// @param v Second row.
+/// @param min_support Pairs whose union is smaller than this get 0.
+/// @return The proximity.
 static double jaccard_coef_binary(const Row& u, const Row& v, double min_support) {
     double inter = 0, uni = 0;
     for (size_t i = 0; i < u.size(); ++i) {
@@ -32,6 +47,11 @@ static double jaccard_coef_binary(const Row& u, const Row& v, double min_support
     return inter / uni;
 }
 
+/// @brief Set Jaccard proximity: the rows' distinct values compared as sets (zeros count as an item).
+/// @param u First row.
+/// @param v Second row.
+/// @param min_support Pairs whose union is smaller than this get 0.
+/// @return The proximity.
 static double jaccard_coef_set(const Row& u, const Row& v, double min_support) {
     std::set<double> a(u.begin(), u.end()), b(v.begin(), v.end());
     double inter = 0;
@@ -41,6 +61,11 @@ static double jaccard_coef_set(const Row& u, const Row& v, double min_support) {
     return inter / union_len;
 }
 
+/// @brief Weighted Jaccard proximity: sum of element-wise minima over sum of element-wise maxima.
+/// @param u First row.
+/// @param v Second row.
+/// @param min_support Pairs whose sum of maxima is smaller than this get 0.
+/// @return The proximity.
 static double jaccard_coef_weighted(const Row& u, const Row& v, double min_support) {
     double sum_min = 0, sum_max = 0;
     for (size_t i = 0; i < u.size(); ++i) sum_min += std::min(u[i], v[i]), sum_max += std::max(u[i], v[i]);
@@ -48,7 +73,7 @@ static double jaccard_coef_weighted(const Row& u, const Row& v, double min_suppo
     return sum_min / sum_max;
 }
 
-// min_support < 0 selects each metric's Python default (1, or 10 for weighted).
+/// A negative min_support selects each metric's Python default (1, or 10 for weighted).
 Matrix pairwise_proximity(const Matrix& m, const std::string& metric, double min_support) {
     for (const auto& r : m)
         for (double x : r)

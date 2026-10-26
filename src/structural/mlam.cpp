@@ -1,3 +1,6 @@
+/// @file
+/// @brief Multiple Linkage Analysis (structural/mlam.py).
+
 #include <algorithm>
 #include <cmath>
 
@@ -5,7 +8,10 @@
 
 namespace cppbone {
 
-// Neighbours (edge ids) sorted by normalised weight (percent of strength), descending and stable.
+/// @brief A node's edges sorted by their share of its strength, largest first (stable).
+/// @param g Graph with a "weight" edge attribute.
+/// @param node Node index.
+/// @return (edge id, weight as a percentage of the node's strength) pairs.
 static std::vector<std::pair<int, double>> get_neighbor_weights(const Graph& g, int node) {
     std::vector<std::pair<int, double>> out;
     double total = 0;
@@ -15,13 +21,20 @@ static std::vector<std::pair<int, double>> get_neighbor_weights(const Graph& g, 
     return out;
 }
 
+/// @brief Ideal distribution of a node with i + 1 equal links.
+/// @param i Index of the last kept link.
+/// @param total Length of the distribution (the node's degree).
+/// @return 100 / (i + 1) for the first i + 1 entries, 0 after.
 static std::vector<double> get_ideal_distribution(int i, int total) {
     std::vector<double> a(total, 0);
     for (int j = 0; j <= i; ++j) a[j] = 100.0 / (i + 1);
     return a;
 }
 
-// Coefficient of determination (squared Pearson correlation) rounded to 2 decimals; NaN for a constant input.
+/// @brief Coefficient of determination (squared Pearson correlation) of two series, rounded to 2 decimals.
+/// @param f First series.
+/// @param y Second series, same length.
+/// @return r^2 rounded to 2 decimals; NaN when either series is constant.
 static double compute_cod(const std::vector<double>& f, const std::vector<double>& y) {
     double n = f.size(), mf = 0, my = 0;
     for (size_t i = 0; i < f.size(); ++i) mf += f[i] / n, my += y[i] / n;

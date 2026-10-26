@@ -1,0 +1,15 @@
+% Loaded after doxygen.sty (LATEX_EXTRA_STYLESHEET) to make the doxygen LaTeX output build with current TeX Live.
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{latex-fixes}
+
+% The tabu package, which doxygen uses for tables, relies on \insert@pcolumn, an internal macro that newer
+% releases of the LaTeX array package removed; put it back.
+\makeatletter
+\providecommand\insert@pcolumn{\insert@column}
+\makeatother
+
+% Non-ASCII characters used in README.md and the sources.
+\DeclareUnicodeCharacter{2265}{\ensuremath{\geq}}
+\DeclareUnicodeCharacter{2264}{\ensuremath{\leq}}
+\DeclareUnicodeCharacter{00D7}{\ensuremath{\times}}
+\DeclareUnicodeCharacter{2192}{\ensuremath{\rightarrow}}

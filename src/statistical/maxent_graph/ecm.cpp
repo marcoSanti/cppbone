@@ -1,9 +1,11 @@
-// (Undirected) Enhanced Configuration Model, ported from maxent_graph (ecm.py, MaxentGraph.py, ecm_main.py).
-// Same parametrisation as Python: x = exp(a), y = sigmoid(b). Python minimises the negative log-likelihood with
-// scipy trust-krylov and JAX autodiff; here gradient and Hessian are closed form (degree/strength residuals and
-// per-pair covariances, chained through the transform) and the solver is Levenberg-Marquardt. Steps are judged on
-// the change in the objective summed term by term, since the objective itself (~1e8 on real data) cannot resolve
-// the small decreases near the optimum.
+/// @file
+/// @brief (Undirected) Enhanced Configuration Model, ported from maxent_graph (ecm.py, MaxentGraph.py, ecm_main.py).
+///
+/// Same parametrisation as Python: x = exp(a), y = sigmoid(b). Python minimises the negative log-likelihood with
+/// scipy trust-krylov and JAX autodiff; here gradient and Hessian are closed form (degree/strength residuals and
+/// per-pair covariances, chained through the transform) and the solver is Levenberg-Marquardt. Steps are judged on
+/// the change in the objective summed term by term, since the objective itself (~1e8 on real data) cannot resolve
+/// the small decreases near the optimum.
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -16,9 +18,14 @@ namespace cppbone {
 
 namespace {
 
+/// @brief Machine epsilon, the margin that keeps the initial guess inside the parameter bounds.
 constexpr double EPS = std::numeric_limits<double>::epsilon();
 
-// In-place Cholesky solve of H d = r; false if H is not positive definite.
+/// @brief Solves H d = r by Cholesky factorisation (the column updates run in parallel).
+/// @param H Symmetric n x n matrix, row-major (taken by value: it is factorised in place).
+/// @param r Right-hand side; replaced by the solution d.
+/// @param n Matrix size.
+/// @return false if H is not positive definite (r is then partially overwritten).
 bool cholesky_solve(std::vector<double> H, std::vector<double>& r, int n) {
     for (int j = 0; j < n; ++j) {
         double d = H[j * n + j];
@@ -44,16 +51,38 @@ bool cholesky_solve(std::vector<double> H, std::vector<double>& r, int n) {
     return true;
 }
 
+/// @brief The ECM likelihood for one network: observed sequences, derivatives and the solver.
+///
+/// The parameter vector v holds a_i = log x_i in v[0..n) and b_i = logit y_i in v[n..2n).
 struct ECM {
-    std::vector<double> k, s;  // observed degree and strength sequences
-    int n = 0;
+    std::vector<double> k;  ///< Observed degree of every node.
+    std::vector<double> s;  ///< Observed strength of every node.
+    int n = 0;              ///< Number of nodes.
 
+    /// @brief Logistic function.
+    /// @param b Argument.
+    /// @return 1 / (1 + exp(-b)).
     static double sigmoid(double b) { return 1 / (1 + std::exp(-b)); }
+
+    /// @brief Logarithm of the logistic function, without overflow for large |b|.
+    /// @param b Argument.
+    /// @return log(sigmoid(b)).
     static double log_sigmoid(double b) { return b >= 0 ? -std::log1p(std::exp(-b)) : b - std::log1p(std::exp(b)); }
 
+    /// @brief Model quantities of one node pair.
     struct Pair {
-        double p, sij, one_m_yy, yy, r;  // r = xx yy / (1 - yy); log-likelihood term is -log1p(r)
+        double p;         ///< Probability that the edge exists.
+        double sij;       ///< Expected weight.
+        double one_m_yy;  ///< 1 - y_i y_j, computed without cancellation.
+        double yy;        ///< y_i y_j.
+        double r;         ///< x_i x_j y_i y_j / (1 - y_i y_j); the pair's log-likelihood term is -log1p(r).
     };
+
+    /// @brief Computes the model quantities of a pair.
+    /// @param v Parameter vector.
+    /// @param i First node; callers pass the larger index first so results do not depend on the order.
+    /// @param j Second node.
+    /// @return The pair's quantities.
     Pair pair(const std::vector<double>& v, int i, int j) const {
         double yi = sigmoid(v[n + i]), yj = sigmoid(v[n + j]);
         double yy = yi * yj;
@@ -64,7 +93,10 @@ struct ECM {
         return {p, p / one_m_yy, one_m_yy, yy, xxyy / one_m_yy};
     }
 
-    std::vector<double> get_initial_guess(std::mt19937& rng) const {  // option 5, clipped to the bounds
+    /// @brief Starting point of the solver: maxent_graph's option 5, clipped to the bounds.
+    /// @param rng Random generator for the y part.
+    /// @return x_i = k_i / sqrt(edges) and uniformly random y_i, as a parameter vector.
+    std::vector<double> get_initial_guess(std::mt19937& rng) const {
         double num_edges = 0;
         for (double ki : k) num_edges += ki;
         num_edges /= 2;
@@ -78,7 +110,11 @@ struct ECM {
         return v;
     }
 
-    // Expected (k, s) sequence, gradient and Hessian of the negative log-likelihood in (a, b).
+    /// @brief Expected sequences, gradient and Hessian of the negative log-likelihood at a point.
+    /// @param v Parameter vector.
+    /// @param expected Receives the expected degrees (first n) and strengths (last n).
+    /// @param grad Receives the gradient with respect to v.
+    /// @param H Receives the 2n x 2n Hessian, row-major.
     void derivatives(const std::vector<double>& v, std::vector<double>& expected, std::vector<double>& grad,
                      std::vector<double>& H) const {
         int m = 2 * n;
@@ -116,7 +152,10 @@ struct ECM {
         }
     }
 
-    // f(w) - f(v) for the negative log-likelihood, summed from per-term differences.
+    /// @brief Change of the negative log-likelihood between two points, summed term by term for precision.
+    /// @param v Current point.
+    /// @param w Candidate point.
+    /// @return f(w) - f(v).
     double delta_nll(const std::vector<double>& v, const std::vector<double>& w) const {
         double d = 0;
         for (int i = 0; i < n; ++i) {
@@ -136,6 +175,9 @@ struct ECM {
         return d;
     }
 
+    /// @brief Largest relative error between the expected and observed sequences.
+    /// @param expected Expected degrees and strengths, as from derivatives().
+    /// @return max over nodes of |expected - observed| / (1 + |observed|).
     double max_relative_error(const std::vector<double>& expected) const {
         double mx = 0;
         for (int i = 0; i < n; ++i) {
@@ -145,6 +187,13 @@ struct ECM {
         return mx;
     }
 
+    /// @brief Minimises the negative log-likelihood with Levenberg-Marquardt.
+    ///
+    /// Stops when the gradient norm drops below 1e-8 (scipy's gtol) or the fit is essentially exact.
+    /// @param v Starting point.
+    /// @return The fitted parameter vector.
+    /// @throws std::runtime_error if it fails with a max relative error of 0.5 or more (a warning is printed for
+    ///         smaller errors).
     std::vector<double> solve(std::vector<double> v) const {
         int m = 2 * n;
         std::vector<double> expected, g, H;

@@ -1,6 +1,9 @@
-// Marginal Likelihood Filter (Navid Dianati): significance p-value per edge of an integer-weighted graph under a
-// configuration-model null. Only the undirected variant is ported; the Python directed path cannot run
-// (_pvalue_directed is called with the wrong keyword names).
+/// @file
+/// @brief Marginal Likelihood Filter (Navid Dianati; statistical/marginal_likelihood.py).
+///
+/// Significance p-value per edge of an integer-weighted graph under a configuration-model null. Only the
+/// undirected variant is ported; the Python directed path cannot run (_pvalue_directed is called with the wrong
+/// keyword names).
 #include <algorithm>
 #include <stdexcept>
 
@@ -8,10 +11,15 @@
 
 namespace cppbone {
 
-// Clip of binomtest p-values (MAX_NEG_LOG in the Python source).
+/// @brief Lower clip of the p-values (MAX_NEG_LOG in the Python source).
 static constexpr double MAX_NEG_LOG = 0;
 
-// P(X >= w) for X ~ Binomial(q, ku*kv / (2 q^2)), statsmodels binom_test(alternative="larger").
+/// @brief Upper-tail binomial p-value of one undirected edge (statsmodels binom_test, alternative="larger").
+/// @param w Edge weight.
+/// @param ku Strength of one endpoint.
+/// @param kv Strength of the other endpoint.
+/// @param q Total weight (half the sum of strengths).
+/// @return P(X >= w) for X ~ Binomial(q, ku kv / (2 q^2)).
 static double pvalue_undirected(double w, double ku, double kv, double q) {
     double p = ku * kv * 1.0 / q / q / 2.0;
     return binom_sf(w - 1, q, p);

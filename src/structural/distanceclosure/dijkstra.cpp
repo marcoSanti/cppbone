@@ -1,4 +1,7 @@
-// Dijkstra with a pluggable path disjunction, adapted (like the Python module) from networkx.
+/// @file
+/// @brief Dijkstra with a pluggable path disjunction (distanceclosure/dijkstra.py, adapted from networkx), plus the
+///        reusable-workspace variant used by the parallel methods.
+
 #include <algorithm>
 #include <functional>
 #include <queue>

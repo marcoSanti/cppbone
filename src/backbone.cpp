@@ -1,3 +1,6 @@
+/// @file
+/// @brief Backbone output: CSV export and narration.
+
 #include "cppbone/backbone.hpp"
 
 #include <iostream>

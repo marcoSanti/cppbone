@@ -1,5 +1,7 @@
-// Mirrors modulairy_backbone.py: Louvain communities (python-louvain best_partition), then each node's vitality
-// = |Q - Q without the node|.
+/// @file
+/// @brief Modularity backbone (structural/modulairy_backbone.py).
+///
+/// Louvain communities (python-louvain best_partition), then each node's vitality = |Q - Q without the node|.
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -11,16 +13,21 @@ namespace cppbone {
 
 namespace {
 
-// Weighted graph on integer nodes with self-loops, the shape Louvain's induced graphs need.
+/// @brief Weighted graph on integer nodes with self-loops, the shape Louvain's induced graphs need.
 struct WGraph {
-    std::vector<std::vector<std::pair<int, double>>> adj;  // excludes self-loops
-    std::vector<double> loops;
+    std::vector<std::vector<std::pair<int, double>>> adj;  ///< (neighbour, weight) per node, self-loops excluded.
+    std::vector<double> loops;                             ///< Self-loop weight per node.
 
-    double degree(int u) const {  // networkx: self-loop counts twice
+    /// @brief Weighted degree of a node; a self-loop counts twice, like networkx.
+    /// @param u Node.
+    /// @return The weighted degree.
+    double degree(int u) const {
         double d = 2 * loops[u];
         for (auto& p : adj[u]) d += p.second;
         return d;
     }
+    /// @brief Total edge weight (networkx size(weight)).
+    /// @return Half the sum of the weighted degrees.
     double size() const {
         double s = 0;
         for (size_t u = 0; u < adj.size(); ++u) s += degree(u);
@@ -28,13 +35,20 @@ struct WGraph {
     }
 };
 
+/// @brief Smallest modularity gain that keeps Louvain iterating (python-louvain __MIN).
 constexpr double MIN_GAIN = 0.0000001;
 
+/// @brief Louvain state of one level (python-louvain Status): node communities and per-community totals.
 struct Status {
-    std::vector<int> node2com;
-    std::vector<double> degrees, gdegrees, internals, loops;
-    double total_weight = 0;
+    std::vector<int> node2com;      ///< Community of every node (-1 while a node is being moved).
+    std::vector<double> degrees;    ///< Total weighted degree of every community.
+    std::vector<double> gdegrees;   ///< Weighted degree of every node.
+    std::vector<double> internals;  ///< Weight inside every community.
+    std::vector<double> loops;      ///< Self-loop weight of every node.
+    double total_weight = 0;        ///< Total edge weight of the graph.
 
+    /// @brief Puts every node in its own community.
+    /// @param g Graph of this level.
     void init(const WGraph& g) {
         int n = (int)g.adj.size();
         node2com.resize(n);
@@ -50,6 +64,8 @@ struct Status {
         }
     }
 
+    /// @brief Modularity of the current partition.
+    /// @return Sum over communities of internal / total - (degree / (2 total))^2.
     double modularity() const {
         double result = 0;
         std::vector<bool> seen(degrees.size(), false);
@@ -63,6 +79,10 @@ struct Status {
     }
 };
 
+/// @brief One Louvain level: moves nodes between neighbouring communities while the modularity improves.
+/// @param g Graph of this level.
+/// @param st State, updated in place.
+/// @param rng Generator for the random node and community orders.
 void one_level(const WGraph& g, Status& st, std::mt19937& rng) {
     int n = (int)g.adj.size();
     std::vector<int> order(n);
@@ -103,7 +123,9 @@ void one_level(const WGraph& g, Status& st, std::mt19937& rng) {
     }
 }
 
-// Renumber communities 0..k-1 by first appearance.
+/// @brief Renumbers communities 0..k-1 in order of first appearance.
+/// @param node2com Community of every node.
+/// @return The renumbered communities.
 std::vector<int> renumber(const std::vector<int>& node2com) {
     std::map<int, int> ids;
     std::vector<int> out;
@@ -111,6 +133,10 @@ std::vector<int> renumber(const std::vector<int>& node2com) {
     return out;
 }
 
+/// @brief Collapses every community into one node (python-louvain induced_graph).
+/// @param part Community of every node, numbered 0..k-1.
+/// @param g Graph to collapse.
+/// @return Graph with one node per community; internal weight becomes self-loops.
 WGraph induced_graph(const std::vector<int>& part, const WGraph& g) {
     int k = 0;
     for (int c : part) k = std::max(k, c + 1);
@@ -134,7 +160,10 @@ WGraph induced_graph(const std::vector<int>& part, const WGraph& g) {
     return out;
 }
 
-// python-louvain best_partition: the last level of the dendrogram.
+/// @brief Louvain communities (python-louvain best_partition): the last level of the dendrogram.
+/// @param graph Graph.
+/// @param rng Generator for the random orders.
+/// @return Community of every node, numbered 0..k-1.
 std::vector<int> best_partition(const WGraph& graph, std::mt19937& rng) {
     int n = (int)graph.adj.size();
     std::vector<int> partition(n);

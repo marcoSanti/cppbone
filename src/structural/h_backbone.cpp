@@ -1,3 +1,6 @@
+/// @file
+/// @brief H-Backbone (structural/h_backbone.py).
+
 #include <algorithm>
 #include <cmath>
 
@@ -5,7 +8,9 @@
 
 namespace cppbone {
 
-// h-index of a list: the largest h such that h values are >= h (the Python loop, including its edge cases).
+/// @brief h-index of a list: the largest h such that h values are >= h (the Python loop, including its edge cases).
+/// @param values Values (copied and sorted).
+/// @return The h-index, 0 for an empty list.
 static double h_index(std::vector<double> values) {
     std::sort(values.begin(), values.end());
     double h = 0;

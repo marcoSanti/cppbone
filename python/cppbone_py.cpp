@@ -1,5 +1,8 @@
-// Python bindings: module `cppbone`, mirroring the original Python API. Methods accept a cppbone.Graph,
-// a networkx graph or a pandas edge-list DataFrame. Node labels become strings; booleans come back as 1.0 / 0.0.
+/// @file
+/// @brief Python bindings: module `cppbone`, mirroring the original Python API.
+///
+/// Methods accept a cppbone.Graph, a networkx graph or a pandas edge-list DataFrame. Node labels become strings;
+/// booleans come back as 1.0 / 0.0.
 #include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -13,7 +16,9 @@ using namespace cppbone;
 
 namespace {
 
-// Numeric attributes only; anything that will not convert to float (strings, None) is skipped.
+/// @brief Converts a Python attribute dict to Attrs.
+/// @param data Python dict.
+/// @return The numeric attributes; values that do not convert to float (strings, None) are skipped.
 Attrs to_attrs(const py::handle& data) {
     Attrs a;
     for (auto kv : py::reinterpret_borrow<py::dict>(data)) {
@@ -25,6 +30,10 @@ Attrs to_attrs(const py::handle& data) {
     return a;
 }
 
+/// @brief Converts an undirected networkx graph, keeping node order, edge order and numeric edge attributes.
+/// @param g networkx.Graph.
+/// @return The graph, with labels converted to strings.
+/// @throws py::type_error for a directed graph.
 Graph from_networkx(const py::object& g) {
     if (py::cast<bool>(g.attr("is_directed")())) throw py::type_error("only undirected graphs are supported");
     Graph out;
@@ -36,6 +45,10 @@ Graph from_networkx(const py::object& g) {
     return out;
 }
 
+/// @brief Converts a pandas edge list with "source" and "target" columns; other numeric columns become attributes.
+/// @param df pandas.DataFrame.
+/// @return The graph, with labels converted to strings.
+/// @throws py::value_error if a column is missing.
 Graph from_pandas(const py::object& df) {
     std::vector<std::string> cols;
     for (auto c : df.attr("columns")) cols.push_back(py::str(c));
@@ -61,6 +74,10 @@ Graph from_pandas(const py::object& df) {
     return out;
 }
 
+/// @brief Accepts any supported input as a Graph.
+/// @param data cppbone.Graph, pandas.DataFrame or networkx graph.
+/// @return The graph (copied or converted).
+/// @throws py::type_error for any other type.
 Graph to_graph(const py::object& data) {
     if (py::isinstance<Graph>(data)) return py::cast<Graph>(data);
     if (py::hasattr(data, "columns")) return from_pandas(data);
@@ -68,13 +85,20 @@ Graph to_graph(const py::object& data) {
     throw py::type_error("data should be a cppbone.Graph, a pandas dataframe or a networkx graph");
 }
 
+/// @brief Builds a pandas DataFrame from columns.
+/// @param order Column order.
+/// @param cols Column name to list of values.
+/// @param index Row index, or None for the default.
+/// @return The DataFrame.
 py::object columns_to_pandas(const std::vector<std::string>& order, py::dict cols, py::object index = py::none()) {
     py::list names;
     for (const auto& c : order) names.append(c);
     return py::module_::import("pandas").attr("DataFrame")(cols, py::arg("columns") = names, py::arg("index") = index);
 }
 
-// nx.to_pandas_edgelist
+/// @brief Converts a graph to a pandas edge list (networkx to_pandas_edgelist).
+/// @param g Graph.
+/// @return DataFrame with source, target and every edge attribute in alphabetical order.
 py::object edges_to_pandas(const Graph& g) {
     std::vector<std::string> order{"source", "target"};
     std::set<std::string> keys;
@@ -94,6 +118,9 @@ py::object edges_to_pandas(const Graph& g) {
     return columns_to_pandas(order, cols);
 }
 
+/// @brief Converts the node attributes of a graph to a pandas DataFrame indexed by label.
+/// @param g Graph.
+/// @return DataFrame with one column per node attribute, in alphabetical order.
 py::object nodes_to_pandas(const Graph& g) {
     std::set<std::string> keys;
     for (int u = 0; u < g.number_of_nodes(); ++u)
@@ -109,6 +136,9 @@ py::object nodes_to_pandas(const Graph& g) {
     return columns_to_pandas({keys.begin(), keys.end()}, cols, index);
 }
 
+/// @brief Converts a graph to networkx, keeping node and edge attributes.
+/// @param g Graph.
+/// @return networkx.Graph.
 py::object to_networkx(const Graph& g) {
     py::object out = py::module_::import("networkx").attr("Graph")();
     for (int u = 0; u < g.number_of_nodes(); ++u) {
@@ -124,6 +154,9 @@ py::object to_networkx(const Graph& g) {
     return out;
 }
 
+/// @brief Converts a Compare table to a pandas DataFrame.
+/// @param t Table.
+/// @return DataFrame with t's columns and a named index.
 py::object table_to_pandas(const Table& t) {
     py::dict cols;
     for (size_t c = 0; c < t.columns.size(); ++c) {
@@ -135,6 +168,10 @@ py::object table_to_pandas(const Table& t) {
     return columns_to_pandas(t.columns, cols, idx);
 }
 
+/// @brief Maps a Python filter (a cppbone function or its name) to the C++ filter.
+/// @param f Filter function or name.
+/// @return The matching filter.
+/// @throws py::value_error for an unknown name.
 Filter filter_from(const py::object& f) {
     std::string name = py::hasattr(f, "__name__") ? std::string(py::str(f.attr("__name__"))) : std::string(py::str(f));
     if (name == "boolean_filter") return boolean_filter;
@@ -145,6 +182,7 @@ Filter filter_from(const py::object& f) {
 
 }  // namespace
 
+/// @brief Defines the `cppbone` Python module: the Graph class, the methods, filters, measures and Compare.
 PYBIND11_MODULE(cppbone, m) {
     m.doc() = "Backbone extraction from simple weighted networks";
 

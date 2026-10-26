@@ -1,3 +1,6 @@
+/// @file
+/// @brief Compare implementation (compare.py) and the two-sample KS statistic.
+
 #include "cppbone/compare.hpp"
 
 #include <algorithm>
@@ -74,7 +77,10 @@ std::vector<std::pair<std::string, Table>> Compare::properties_progression() {
     return res;
 }
 
-// Keep the nodes and edges of `acc` that are also in `g`.
+/// @brief Intersects two graphs by label.
+/// @param acc Graph to restrict.
+/// @param g Graph to intersect with.
+/// @return The nodes and edges of acc that are also in g, with acc's attributes.
 static Graph intersect(const Graph& acc, const Graph& g) {
     std::vector<bool> keep(acc.number_of_nodes());
     for (int u = 0; u < acc.number_of_nodes(); ++u) keep[u] = g.node(acc.label(u)) >= 0;
@@ -86,6 +92,9 @@ static Graph intersect(const Graph& acc, const Graph& g) {
     return out;
 }
 
+/// @brief Removes the nodes without edges.
+/// @param g Graph.
+/// @return The subgraph on the nodes of degree > 0.
 static Graph drop_isolates(const Graph& g) {
     std::vector<bool> keep(g.number_of_nodes());
     for (int u = 0; u < g.number_of_nodes(); ++u) keep[u] = g.degree(u) > 0;

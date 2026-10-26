@@ -1,4 +1,7 @@
-// Transitive closure (Rion Brattig Correia) on an undirected distance graph.
+/// @file
+/// @brief Transitive closure of an undirected distance graph, s-values and b-values (Rion Brattig Correia;
+///        distanceclosure/closure.py).
+
 #include <cmath>
 #include <numeric>
 #include <set>

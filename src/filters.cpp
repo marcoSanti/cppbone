@@ -1,3 +1,6 @@
+/// @file
+/// @brief The boolean, threshold and fraction filters (filters.py).
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -13,6 +16,10 @@ std::string filter_name(Filter f) {
     return "custom_filter";
 }
 
+/// @brief Checks that a backbone supports a filter, printing the accepted filters when it does not.
+/// @param b Backbone.
+/// @param f Filter.
+/// @return true if f is among b's compatible filters.
 static bool accepts(const Backbone& b, Filter f) {
     const auto& fs = b.compatible_filters();
     if (std::find(fs.begin(), fs.end(), f) != fs.end()) return true;
@@ -22,7 +29,11 @@ static bool accepts(const Backbone& b, Filter f) {
     return false;
 }
 
-// pandas sort_values: NaN goes last whatever the direction.
+/// @brief Three-way comparison of two sort keys like pandas sort_values: NaN goes last whatever the direction.
+/// @param a First key.
+/// @param b Second key.
+/// @param ascending Sort direction.
+/// @return -1 if a sorts first, 1 if b does, 0 if they tie.
 static int cmp_key(double a, double b, bool ascending) {
     bool na = std::isnan(a), nb = std::isnan(b);
     if (na || nb) return na == nb ? 0 : (na ? 1 : -1);
@@ -30,12 +41,21 @@ static int cmp_key(double a, double b, bool ascending) {
     return (a < b) == ascending ? -1 : 1;
 }
 
+/// @brief Builds a graph from a list of edges of another graph, keeping their attributes and order.
+/// @param g Graph the edges belong to.
+/// @param rows Edges to copy.
+/// @return The new graph.
 static Graph from_edges(const Graph& g, const std::vector<EdgeRef>& rows) {
     Graph out;
     for (const auto& e : rows) out.add_edge(g.label(e.u), g.label(e.v), g.edge_attrs(e.id));
     return out;
 }
 
+/// @brief Lists a backbone's edges best first: by its property, ties broken by a secondary attribute (stable).
+/// @param b Backbone.
+/// @param secondary Secondary attribute.
+/// @param secondary_ascending Sort the secondary attribute in ascending order.
+/// @return The sorted edges.
 static std::vector<EdgeRef> sorted_edges(const Backbone& b, const std::string& secondary, bool secondary_ascending) {
     const Graph& g = b.graph;
     auto rows = g.edges();
@@ -49,6 +69,9 @@ static std::vector<EdgeRef> sorted_edges(const Backbone& b, const std::string& s
     return rows;
 }
 
+/// @brief Lists a node backbone's nodes best first by its property (stable).
+/// @param b Backbone with FilterOn::Nodes.
+/// @return The sorted node indices.
 static std::vector<int> sorted_nodes(const Backbone& b) {
     const Graph& g = b.graph;
     std::vector<int> nodes(g.number_of_nodes());
@@ -60,6 +83,11 @@ static std::vector<int> sorted_nodes(const Backbone& b) {
     return nodes;
 }
 
+/// @brief Tells whether a score passes a threshold.
+/// @param x Score.
+/// @param value Threshold.
+/// @param ascending true when smaller scores are better.
+/// @return x < value for ascending scores, x > value otherwise.
 static bool passes(double x, double value, bool ascending) { return ascending ? x < value : x > value; }
 
 Graph boolean_filter(const Backbone& backbone, double, bool narrate, const std::string&, bool) {

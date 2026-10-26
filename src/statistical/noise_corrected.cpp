@@ -1,3 +1,6 @@
+/// @file
+/// @brief Noise Corrected filter (statistical/noise_corrected.py).
+
 #include <cmath>
 
 #include "detail.hpp"

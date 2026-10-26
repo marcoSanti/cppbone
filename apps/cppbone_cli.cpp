@@ -1,5 +1,8 @@
-// cppbone_cli: command-line front end to the library. Loads an edge list, runs any set of backbone methods,
-// filters them, and optionally compares the results (measures, property progression, KS statistics, consensus).
+/// @file
+/// @brief cppbone_cli: command-line front end to the library.
+///
+/// Loads an edge list, runs any set of backbone methods, filters them, and optionally compares the results
+/// (measures, property progression, KS statistics, consensus).
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -18,9 +21,11 @@
 
 #ifdef _WIN32
 #include <io.h>
+/// @brief Tells whether a file descriptor is a terminal (Windows spelling).
 #define CPPBONE_ISATTY(fd) _isatty(fd)
 #else
 #include <unistd.h>
+/// @brief Tells whether a file descriptor is a terminal (POSIX spelling).
 #define CPPBONE_ISATTY(fd) isatty(fd)
 #endif
 
@@ -34,24 +39,30 @@ namespace fs = std::filesystem;
 
 namespace {
 
-// ---- registries ---------------------------------------------------------------------------------------------
+/// @name Registries
+/// The methods, measures, distributions and filters the command line can name.
+/// @{
 
+/// @brief Method parameters set from the command line.
 struct MethodOptions {
-    std::uint32_t ecm_seed = 0;
-    std::uint32_t modularity_seed = 123;
-    double glanb_c = 1;
-    bool betweenness_unweighted = false;
-    bool betweenness_raw = false;
-    bool degree_weighted = false;
-    bool noise_corrected_exact = false;
+    std::uint32_t ecm_seed = 0;          ///< Seed of ecm's random starting point.
+    std::uint32_t modularity_seed = 123; ///< Seed of modularity_backbone's Louvain order.
+    double glanb_c = 1;                  ///< glanb's c exponent.
+    bool betweenness_unweighted = false; ///< betweenness: count hops instead of weighted lengths.
+    bool betweenness_raw = false;        ///< betweenness: do not normalise.
+    bool degree_weighted = false;        ///< degree: use the strength.
+    bool noise_corrected_exact = false;  ///< noise_corrected: exact score instead of the binomial approximation.
 };
 
+/// @brief A backbone method as the command line knows it.
 struct Method {
-    std::string name;
-    std::string family;
-    std::function<cb::Backbone(const cb::Graph&, const MethodOptions&)> run;
+    std::string name;    ///< Name used with --method.
+    std::string family;  ///< "statistical", "structural" or "hybrid".
+    std::function<cb::Backbone(const cb::Graph&, const MethodOptions&)> run;  ///< Runs the method.
 };
 
+/// @brief Lists every backbone method, in the order they run.
+/// @return The method registry.
 const std::vector<Method>& methods() {
     using G = const cb::Graph&;
     using O = const MethodOptions&;
@@ -81,6 +92,8 @@ const std::vector<Method>& methods() {
     return m;
 }
 
+/// @brief Lists every measure usable with --measure.
+/// @return (name, property) pairs.
 const std::vector<std::pair<std::string, cb::Property>>& measures() {
     static const std::vector<std::pair<std::string, cb::Property>> m = {
         {"node_fraction", cb::node_fraction},
@@ -102,6 +115,8 @@ const std::vector<std::pair<std::string, cb::Property>>& measures() {
     return m;
 }
 
+/// @brief Lists every distribution usable with --ks.
+/// @return (name, distribution) pairs.
 const std::vector<std::pair<std::string, cb::Distribution>>& distributions() {
     static const std::vector<std::pair<std::string, cb::Distribution>> d = {
         {"degree", [](const cb::Graph& g) { return cb::degrees(g); }},
@@ -111,20 +126,25 @@ const std::vector<std::pair<std::string, cb::Distribution>>& distributions() {
     return d;
 }
 
-// unordered_map: the map type args::MapFlag expects.
+/// @brief Filters by command-line name (an unordered_map: the map type args::MapFlag expects).
 const std::unordered_map<std::string, cb::Filter> filters = {
     {"boolean", cb::boolean_filter},
     {"threshold", cb::threshold_filter},
     {"fraction", cb::fraction_filter},
 };
+/// @}
 
-// ---- helpers ------------------------------------------------------------------------------------------------
+/// @name Helpers
+/// @{
 
+/// @brief Error in the command line itself; reported with a pointer to --help and exit code 2.
 struct UsageError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-// Flattens repeated and comma-separated values ("-m a,b -m c").
+/// @brief Flattens repeated and comma-separated values ("-m a,b -m c" gives a, b, c).
+/// @param raw Values as given to a list flag.
+/// @return The non-empty items, in order.
 std::vector<std::string> split_list(const std::vector<std::string>& raw) {
     std::vector<std::string> out;
     for (const auto& item : raw) {
@@ -136,11 +156,23 @@ std::vector<std::string> split_list(const std::vector<std::string>& raw) {
     return out;
 }
 
+/// @brief Name of a method registry entry.
+/// @param m Method.
+/// @return Its command-line name.
 const std::string& name_of(const Method& m) { return m.name; }
+
+/// @brief Name of a (name, value) registry entry.
+/// @param p Entry.
+/// @return Its command-line name.
 template <typename T>
 const std::string& name_of(const std::pair<std::string, T>& p) { return p.first; }
 
-// Resolves names against a registry; "all" selects every entry. Keeps registry order, drops duplicates.
+/// @brief Resolves names against a registry; "all" selects every entry.
+/// @param registry methods(), measures() or distributions().
+/// @param names Names given on the command line.
+/// @param what Kind of entry, for the error message.
+/// @return Indices of the selected entries, in registry order, without duplicates.
+/// @throws UsageError for an unknown name.
 template <typename Registry>
 std::vector<size_t> select(const Registry& registry, const std::vector<std::string>& names, const std::string& what) {
     std::vector<bool> chosen(registry.size(), false);
@@ -159,6 +191,10 @@ std::vector<size_t> select(const Registry& registry, const std::vector<std::stri
     return idx;
 }
 
+/// @brief Parses a comma-separated list of numbers.
+/// @param s Text such as "0.05,0.1".
+/// @return The numbers.
+/// @throws UsageError for an item that is not a number.
 std::vector<double> parse_doubles(const std::string& s) {
     std::vector<double> out;
     for (const auto& tok : split_list({s})) {
@@ -175,11 +211,18 @@ std::vector<double> parse_doubles(const std::string& s) {
     return out;
 }
 
+/// @brief Tells whether a backbone supports a filter (silently, unlike the library's check).
+/// @param b Backbone.
+/// @param f Filter.
+/// @return true if f is among b's compatible filters.
 bool accepts(const cb::Backbone& b, cb::Filter f) {
     const auto& fs = b.compatible_filters();
     return std::find(fs.begin(), fs.end(), f) != fs.end();
 }
 
+/// @brief Lists a backbone's compatible filters by command-line name.
+/// @param b Backbone.
+/// @return Names such as "threshold,fraction".
 std::string compatible_list(const cb::Backbone& b) {
     std::string s;
     for (cb::Filter f : b.compatible_filters()) {
@@ -190,7 +233,11 @@ std::string compatible_list(const cb::Backbone& b) {
     return s;
 }
 
-// Writes to `dir/name`, or to stdout under a "# name" banner when no output directory was given.
+/// @brief Writes an output file, or prints it to stdout under a "# name" banner when there is no output directory.
+/// @param dir Output directory, if any.
+/// @param name File name.
+/// @param w Writer of the content.
+/// @throws std::runtime_error if the file cannot be created.
 void emit(const std::optional<fs::path>& dir, const std::string& name, const std::function<void(std::ostream&)>& w) {
     if (!dir) {
         std::cout << "\n# " << name << '\n';
@@ -203,9 +250,12 @@ void emit(const std::optional<fs::path>& dir, const std::string& name, const std
     w(out);
 }
 
-// Progress over the selected methods on stderr; a no-op when disabled.
+/// @brief Progress bar over the selected methods, on stderr; does nothing when disabled.
 class Progress {
 public:
+    /// @brief Creates the bar.
+    /// @param total Number of steps.
+    /// @param enabled Whether to draw it (false when quiet or stderr is not a terminal).
     Progress(size_t total, bool enabled) : total_(total) {
         if (!enabled || total == 0) return;
         bar_ = std::make_unique<indicators::ProgressBar>(
@@ -215,11 +265,14 @@ public:
             indicators::option::MaxProgress{total}, indicators::option::Stream{std::cerr},
             indicators::option::ForegroundColor{indicators::Color::cyan});
     }
+    /// @brief Shows which step is running.
+    /// @param what Step name.
     void start(const std::string& what) {
         if (bar_) bar_->set_option(indicators::option::PostfixText{what + " (" + std::to_string(done_ + 1) + "/" +
                                                                    std::to_string(total_) + ")"});
         if (bar_) bar_->print_progress();
     }
+    /// @brief Marks the current step as done.
     void tick() {
         ++done_;
         if (!bar_) return;
@@ -228,10 +281,12 @@ public:
     }
 
 private:
-    size_t total_, done_ = 0;
-    std::unique_ptr<indicators::ProgressBar> bar_;
+    size_t total_;                                  ///< Number of steps.
+    size_t done_ = 0;                               ///< Steps completed.
+    std::unique_ptr<indicators::ProgressBar> bar_;  ///< The bar, null when disabled.
 };
 
+/// @brief Prints the names of the methods, filters, measures and distributions (--list).
 void print_list() {
     std::cout << "methods:\n";
     for (const auto& m : methods()) std::cout << "  " << std::left << std::setw(32) << m.name << m.family << '\n';
@@ -243,8 +298,14 @@ void print_list() {
     for (const auto& d : distributions()) std::cout << "  " << d.first << '\n';
 }
 
+/// @}
+
 }  // namespace
 
+/// @brief Parses the command line, then loads, runs, filters, writes and compares.
+/// @param argc Argument count.
+/// @param argv Arguments; see --help.
+/// @return 0 on success, 1 on a runtime error, 2 on a usage error.
 int main(int argc, char** argv) {
     args::ArgumentParser parser(
         "Extract network backbones from a weighted edge list.",

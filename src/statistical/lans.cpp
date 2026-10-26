@@ -1,3 +1,6 @@
+/// @file
+/// @brief Locally Adaptive Network Sparsification (statistical/lans.py).
+
 #include <algorithm>
 #include <cmath>
 

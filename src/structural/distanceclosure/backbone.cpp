@@ -1,5 +1,7 @@
-// Backbone subgraph - fast implementation (Rion Brattig Correia, Felipe Xavier Costa).
-// Computes the shortest path distance backbone on a weighted graph whose edges are distances.
+/// @file
+/// @brief Backbone subgraph, fast implementation (Rion Brattig Correia, Felipe Xavier Costa; distanceclosure/backbone.py).
+///
+/// Computes the shortest-path distance backbone of a weighted graph whose edges are distances.
 #include <algorithm>
 #include <numeric>
 
@@ -7,12 +9,21 @@
 
 namespace cppbone {
 
-// Removes every edge that is not the shortest path between its endpoints, visiting nodes by decreasing strength.
-// Removing an edge with a strictly shorter alternative changes no shortest-path distance, so a node's search gives
-// the same distances whichever of the earlier removals have been applied. Nodes are therefore processed in batches:
-// the searches of a batch run in parallel on the graph left by the previous batches, each stopping at the node's
-// largest incident weight (nothing farther can beat an edge), and then the batch's removals are replayed in order.
-// One thread reproduces the sequential algorithm; the result and the s-values do not depend on the thread count.
+/// @brief Removes every edge that is not the shortest path between its endpoints, visiting nodes by decreasing
+///        strength.
+///
+/// Removing an edge with a strictly shorter alternative changes no shortest-path distance, so a node's search gives
+/// the same distances whichever of the earlier removals have been applied. Nodes are therefore processed in
+/// batches: the searches of a batch run in parallel on the graph left by the previous batches, each stopping at the
+/// node's largest incident weight (nothing farther can beat an edge), and then the batch's removals are replayed in
+/// order. One thread reproduces the sequential algorithm; the result and the s-values do not depend on the thread
+/// count.
+/// @param d Graph whose `weight` attribute holds distances.
+/// @param weight Distance attribute.
+/// @param disjunction Sum for the metric backbone, Max for the ultrametric one.
+/// @param s_values If given, receives the endpoint labels and s-value (distance / shortest path) of every removed
+///        edge, in removal order.
+/// @return Copy of d without the redundant edges.
 static Graph compute_backbone(const Graph& d, const std::string& weight, Disjunction disjunction,
                               std::vector<std::pair<std::pair<std::string, std::string>, double>>* s_values) {
     Graph g = d;

@@ -1,3 +1,6 @@
+/// @file
+/// @brief Global threshold backbone (structural/global_threshold.py).
+
 #include "cppbone/cppbone.hpp"
 
 namespace cppbone {

@@ -1,3 +1,6 @@
+/// @file
+/// @brief Global Sparsification (structural/gspar.py).
+
 #include <algorithm>
 #include <iterator>
 
@@ -16,7 +19,10 @@ double jaccard(std::vector<int> a, std::vector<int> b) {
     return double(inter.size()) / uni.size();
 }
 
-// Closed neighbourhood (node and its neighbours), sorted and deduplicated.
+/// @brief Closed neighbourhood of a node: the node and its neighbours, sorted and deduplicated.
+/// @param g Graph.
+/// @param node Node index.
+/// @return The sorted node indices.
 static std::vector<int> get_neighbours(const Graph& g, int node) {
     std::vector<int> out{node};
     for (auto [v, id] : g.adj(node)) out.push_back(v);

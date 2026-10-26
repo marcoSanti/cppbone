@@ -43,6 +43,9 @@ The CLI fetches two header-only libraries at configure time:
 
 To use it from another CMake project, add it with `add_subdirectory(cppbone)` and link against the `cppbone` target.
 
+API documentation: every function carries a doxygen comment. `make -C docs` builds it into `docs/build/` (HTML in
+`html/`, LaTeX in `latex/`); `make -C docs pdf` also compiles `docs/build/latex/refman.pdf`. See `docs/Makefile`.
+
 ### Parallelism
 
 When the compiler supports OpenMP, the library is built with it (`-DCPPBONE_OPENMP=OFF` turns it off; Apple clang has

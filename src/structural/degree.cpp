@@ -1,3 +1,6 @@
+/// @file
+/// @brief Degree backbone (structural/degree.py).
+
 #include "detail.hpp"
 
 namespace cppbone {

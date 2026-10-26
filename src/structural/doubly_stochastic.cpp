@@ -1,3 +1,6 @@
+/// @file
+/// @brief Doubly Stochastic filter (structural/doubly_stochastic.py).
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -8,6 +11,10 @@
 
 namespace cppbone {
 
+/// @brief Union-find root lookup with path halving.
+/// @param p Parent array; updated to shorten the paths.
+/// @param x Element.
+/// @return The root of x's set.
 static int find(std::vector<int>& p, int x) {
     while (p[x] != x) x = p[x] = p[p[x]];
     return x;

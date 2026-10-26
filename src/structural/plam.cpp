@@ -1,3 +1,6 @@
+/// @file
+/// @brief Primary Linkage Analysis (structural/plam.py).
+
 #include "detail.hpp"
 
 namespace cppbone {

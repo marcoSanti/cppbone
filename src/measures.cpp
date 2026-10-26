@@ -1,3 +1,6 @@
+/// @file
+/// @brief Backbone measures (measures.py).
+
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -19,6 +22,9 @@ std::vector<double> degrees(const Graph& g, const std::string& weight) {
     return out;
 }
 
+/// @brief Sums a vector.
+/// @param v Values.
+/// @return Their sum, in order.
 static double sum(const std::vector<double>& v) { return std::accumulate(v.begin(), v.end(), 0.0); }
 
 double density(const Graph&, const Graph& graph) {
@@ -88,7 +94,9 @@ double lcc_edge_fraction(const Graph&, const Graph& g) { return edge_fraction(g,
 
 double lcc_weight_fraction(const Graph&, const Graph& g) { return weight_fraction(g, lcc(g)); }
 
-// Per node: connected neighbour pairs, counted once per unordered pair (self-loops ignored), computed in parallel.
+/// @brief Counts the triangles through every node, in parallel.
+/// @param g Graph.
+/// @return Per node, the number of connected pairs of its neighbours (self-loops ignored).
 static std::vector<double> triangles(const Graph& g) {
     int n = g.number_of_nodes();
     std::vector<double> t(n, 0);

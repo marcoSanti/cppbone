@@ -1,0 +1,38 @@
+# Doxygen configuration for cppbone. Paths are relative to this directory: run `make` here (see Makefile).
+PROJECT_NAME           = cppbone
+PROJECT_BRIEF          = "Backbone extraction from simple weighted networks"
+OUTPUT_DIRECTORY       = build
+CREATE_SUBDIRS         = NO
+
+# ---- input ----
+INPUT                  = ../include ../src ../apps ../python ../tests ../README.md
+FILE_PATTERNS          = *.hpp *.cpp *.md
+RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = ../README.md
+MARKDOWN_ID_STYLE      = GITHUB
+STRIP_FROM_PATH        = ..
+STRIP_FROM_INC_PATH    = ../include
+
+# ---- what to extract: everything documented, including internal helpers ----
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_ANON_NSPACES   = YES
+
+# ---- warnings: flag anything undocumented ----
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+WARN_IF_INCOMPLETE_DOC = YES
+
+# ---- output: HTML in build/html, LaTeX in build/latex (make pdf turns it into refman.pdf) ----
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_LATEX         = YES
+LATEX_OUTPUT           = latex
+USE_PDFLATEX           = YES
+PDF_HYPERLINKS         = YES
+LATEX_BATCHMODE        = YES
+LATEX_EXTRA_STYLESHEET = latex-fixes.sty

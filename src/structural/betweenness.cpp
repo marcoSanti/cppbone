@@ -1,3 +1,6 @@
+/// @file
+/// @brief Edge betweenness centrality and the betweenness backbone (structural/betweenness.py).
+
 #include <deque>
 #include <queue>
 #include <tuple>
@@ -6,8 +9,8 @@
 
 namespace cppbone {
 
-// Brandes edge betweenness, a line-by-line port of networkx (including its tie handling) so values match.
-// Sources run in parallel; their contributions are summed atomically, so the last bits depend on the schedule.
+/// Brandes' algorithm, a line-by-line port of networkx (including its tie handling) so values match. Sources run
+/// in parallel; their contributions are summed atomically, so the last bits depend on the schedule.
 std::vector<double> edge_betweenness_centrality(const Graph& g, bool normalized, const std::string& weight) {
     int n = g.number_of_nodes();
     std::vector<double> bc(g.edge_capacity(), 0.0);

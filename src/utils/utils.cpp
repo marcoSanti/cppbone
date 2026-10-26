@@ -1,3 +1,6 @@
+/// @file
+/// @brief Utilities (utils/utils.py): components, cumulative distributions, binomial tails, thread count.
+
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -53,11 +56,16 @@ std::vector<std::pair<double, double>> cumulative_dist(std::vector<double> value
     return out;
 }
 
-constexpr double PI = 3.14159265358979323846;  // M_PI is not standard (MSVC lacks it)
+/// @brief Pi, defined here because M_PI is not standard (MSVC lacks it).
+constexpr double PI = 3.14159265358979323846;
 
-// Loader's saddle-point binomial density (as in R's dbinom_raw): stays accurate for n ~ 1e9 where lgamma
-// differences lose ~6 digits.
-static double stirlerr(double n) {  // log(n!) - log(sqrt(2 pi n) (n/e)^n)
+/// @brief Error of Stirling's approximation, log(n!) - log(sqrt(2 pi n) (n / e)^n).
+///
+/// Part of Loader's saddle-point binomial density (as in R's dbinom_raw), which stays accurate for n ~ 1e9 where
+/// lgamma differences lose about 6 digits.
+/// @param n Argument, > 0.
+/// @return The error term.
+static double stirlerr(double n) {
     const double S0 = 1. / 12, S1 = 1. / 360, S2 = 1. / 1260, S3 = 1. / 1680, S4 = 1. / 1188;
     if (n <= 15) return std::lgamma(n + 1) - (n + 0.5) * std::log(n) + n - 0.5 * std::log(2 * PI);
     double nn = n * n;
@@ -67,7 +75,11 @@ static double stirlerr(double n) {  // log(n!) - log(sqrt(2 pi n) (n/e)^n)
     return (S0 - (S1 - (S2 - (S3 - S4 / nn) / nn) / nn) / nn) / n;
 }
 
-static double bd0(double x, double np) {  // x log(x/np) + np - x without cancellation
+/// @brief Deviance term x log(x / np) + np - x, computed without cancellation when x is close to np.
+/// @param x Count.
+/// @param np Expected count.
+/// @return The deviance term.
+static double bd0(double x, double np) {
     if (std::abs(x - np) < 0.1 * (x + np)) {
         double v = (x - np) / (x + np), s = (x - np) * v, ej = 2 * x * v;
         v *= v;
@@ -81,21 +93,37 @@ static double bd0(double x, double np) {  // x log(x/np) + np - x without cancel
     return x * std::log(x / np) + np - x;
 }
 
-// Gamma(n+1) / (Gamma(x+1) Gamma(n-x+1)) p^x q^(n-x), for 0 < x < n.
+/// @brief Binomial probability Gamma(n+1) / (Gamma(x+1) Gamma(n-x+1)) p^x q^(n-x) by Loader's method.
+/// @param x Successes, 0 < x < n.
+/// @param n Trials.
+/// @param p Success probability.
+/// @param q 1 - p.
+/// @return The probability.
 static double dbinom_raw(double x, double n, double p, double q) {
     double lc = stirlerr(n) - stirlerr(x) - stirlerr(n - x) - bd0(x, n * p) - bd0(n - x, n * q);
     double lf = std::log(2 * PI) + std::log(x) + std::log(n - x) - std::log(n);  // not log1p(-x/n): x/n can round near 1
     return std::exp(lc - 0.5 * lf);
 }
 
-// P(X = x), X ~ Binomial(n, p), q = 1 - p.
+/// @brief Binomial probability mass P(X = x), X ~ Binomial(n, p).
+/// @param x Successes, 0 <= x <= n.
+/// @param n Trials.
+/// @param p Success probability.
+/// @param q 1 - p.
+/// @return The probability.
 static double dbinom(double x, double n, double p, double q) {
     if (x == 0) return std::exp(n * std::log1p(-p));
     if (x == n) return std::exp(n * std::log(p));
     return dbinom_raw(x, n, p, q);
 }
 
-// Sum of the pmf from `start` stepping away from the mean (step = +1 or -1), where terms shrink geometrically.
+/// @brief Sums the binomial pmf from `start` stepping away from the mean, where terms shrink geometrically.
+/// @param start First term.
+/// @param step +1 for the upper tail, -1 for the lower tail.
+/// @param n Trials.
+/// @param p Success probability.
+/// @param q 1 - p.
+/// @return The tail probability, summed until the terms stop contributing.
 static double tail_sum(double start, int step, double n, double p, double q) {
     double sum = 0, term = dbinom(start, n, p, q);
     for (double j = start; j >= 0 && j <= n && term > 0; j += step) {
@@ -106,9 +134,13 @@ static double tail_sum(double start, int step, double n, double p, double q) {
     return sum;
 }
 
+/// @brief Tells whether binomial parameters are invalid (scipy returns NaN for them).
+/// @param n Trials.
+/// @param p Success probability.
+/// @return true if n is not a non-negative integer or p is outside [0, 1].
 static bool bad_binom(double n, double p) { return !(n >= 0) || std::floor(n) != n || !(p >= 0 && p <= 1); }
 
-// Each tail is summed directly on its own side of the mean, so small tails keep full relative precision.
+/// Each tail is summed directly on its own side of the mean, so small tails keep full relative precision.
 double binom_cdf(double k, double n, double p) {
     if (bad_binom(n, p) || std::isnan(k)) return NaN;
     k = std::floor(k);

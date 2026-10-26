@@ -1,3 +1,6 @@
+/// @file
+/// @brief Disparity filter (statistical/disparity.py).
+
 #include <algorithm>
 #include <cmath>
 

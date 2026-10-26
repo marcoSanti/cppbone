@@ -1,3 +1,6 @@
+/// @file
+/// @brief Planar Maximally Filtered Graph and the Left-Right planarity test (structural/pmfg.py).
+
 #include <algorithm>
 #include <functional>
 
@@ -7,33 +10,63 @@ namespace cppbone {
 
 namespace {
 
-// Left-Right planarity test (Brandes' formulation), ported from the testing phase of networkx LRPlanarity.
-// Edges are oriented once, so an undirected edge id doubles as its oriented-edge id; -1 plays Python's None.
-// shortcut: recursive DFS, depth = number of nodes; switch to the iterative networkx variant for huge graphs.
+/// @brief Left-Right planarity test (Brandes' formulation), ported from the testing phase of networkx LRPlanarity.
+///
+/// Edges are oriented once, so an undirected edge id doubles as its oriented-edge id; -1 plays Python's None.
+/// shortcut: recursive DFS, depth = number of nodes; switch to the iterative networkx variant for huge graphs.
 struct LRPlanarity {
+    /// @brief Interval of return edges, given by its lowest and highest edge (-1 for none).
     struct Interval {
-        int low = -1, high = -1;
+        int low = -1;   ///< Lowest return edge.
+        int high = -1;  ///< Highest return edge.
+
+        /// @brief Tells whether the interval holds no edge.
+        /// @return true if both ends are unset.
         bool empty() const { return low < 0 && high < 0; }
     };
+
+    /// @brief Pair of intervals whose edges must go on opposite sides.
     struct ConflictPair {
-        Interval left, right;
+        Interval left;   ///< Edges on the left side.
+        Interval right;  ///< Edges on the right side.
+
+        /// @brief Exchanges the two sides.
         void swap() { std::swap(left, right); }
     };
 
-    int n;
-    std::vector<std::vector<std::pair<int, int>>> adj;  // (neighbour, edge id)
-    std::vector<int> head, tail, height, parent_edge, lowpt, lowpt2, nesting_depth, lowpt_edge, ref, stack_bottom;
-    std::vector<bool> oriented;
-    std::vector<std::vector<int>> out;  // oriented out-edges per node
-    std::vector<ConflictPair> S;
+    int n;                                              ///< Number of nodes.
+    std::vector<std::vector<std::pair<int, int>>> adj;  ///< (neighbour, edge id) per node, self-loops removed.
+    std::vector<int> head;           ///< Head node of every oriented edge.
+    std::vector<int> tail;           ///< Tail node of every oriented edge.
+    std::vector<int> height;         ///< DFS depth of every node, -1 before it is visited.
+    std::vector<int> parent_edge;    ///< DFS tree edge into every node, -1 for roots.
+    std::vector<int> lowpt;          ///< Lowest height reachable through an edge's subtree and one back edge.
+    std::vector<int> lowpt2;         ///< Second lowest such height.
+    std::vector<int> nesting_depth;  ///< Order key of the out-edges.
+    std::vector<int> lowpt_edge;     ///< Return edge that reaches lowpt.
+    std::vector<int> ref;            ///< Edge whose side decides this edge's side.
+    std::vector<int> stack_bottom;   ///< Size of S when an edge was entered.
+    std::vector<bool> oriented;      ///< Whether an edge has been oriented by the DFS.
+    std::vector<std::vector<int>> out;  ///< Oriented out-edges per node.
+    std::vector<ConflictPair> S;        ///< Stack of conflict pairs.
 
+    /// @brief Tells whether an interval conflicts with an edge.
+    /// @param i Interval.
+    /// @param b Edge.
+    /// @return true if the interval is non-empty and its highest edge returns above b's lowpoint.
     bool conflicting(const Interval& i, int b) const { return !i.empty() && lowpt[i.high] > lowpt[b]; }
+
+    /// @brief Lowest lowpoint among the return edges of a conflict pair.
+    /// @param p Conflict pair.
+    /// @return The smallest lowpt of its two lowest edges.
     int lowest(const ConflictPair& p) const {
         if (p.left.empty()) return lowpt[p.right.low];
         if (p.right.empty()) return lowpt[p.left.low];
         return std::min(lowpt[p.left.low], lowpt[p.right.low]);
     }
 
+    /// @brief First DFS: orients the edges and computes heights, lowpoints and nesting depths.
+    /// @param v Node being visited.
     void dfs_orientation(int v) {
         int e = parent_edge[v];
         for (auto [w, vw] : adj[v]) {
@@ -66,6 +99,10 @@ struct LRPlanarity {
         }
     }
 
+    /// @brief Merges the return edges of out-edge ei into the constraints of its parent edge e.
+    /// @param ei Out-edge just processed.
+    /// @param e Parent edge of ei's tail.
+    /// @return false if the constraints cannot be satisfied (the graph is not planar).
     bool add_constraints(int ei, int e) {
         ConflictPair P;
         // merge return edges of e_i into P.right
@@ -103,6 +140,8 @@ struct LRPlanarity {
         return true;
     }
 
+    /// @brief Drops the return edges that end at e's tail and records which side e is on.
+    /// @param e Tree edge being left.
     void remove_back_edges(int e) {
         int u = tail[e];
         // trim back edges ending at parent u: drop entire conflict pairs
@@ -129,6 +168,9 @@ struct LRPlanarity {
         }
     }
 
+    /// @brief Second DFS: checks the side constraints of every edge.
+    /// @param v Node being visited.
+    /// @return false as soon as a constraint fails (the graph is not planar).
     bool dfs_testing(int v) {
         int e = parent_edge[v];
         for (int ei : out[v]) {
@@ -152,6 +194,9 @@ struct LRPlanarity {
         return true;
     }
 
+    /// @brief Runs the whole test on a graph.
+    /// @param g Graph; self-loops are ignored.
+    /// @return true if g is planar.
     bool run(const Graph& g) {
         n = g.number_of_nodes();
         int m = g.edge_capacity();

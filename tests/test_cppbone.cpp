@@ -1,4 +1,5 @@
-// Assert-based self-checks. Optional argv[1]: an edge-list CSV to smoke-test every method on.
+/// @file
+/// @brief Assert-based self-checks of the library. Optional argv[1]: an edge-list CSV to smoke-test every method on.
 #undef NDEBUG
 #include <cassert>
 #include <cmath>
@@ -8,8 +9,16 @@
 
 using namespace cppbone;
 
+/// @brief Compares two doubles with a relative tolerance.
+/// @param a Value.
+/// @param b Reference.
+/// @param tol Tolerance, relative to 1 + |b|.
+/// @return true if |a - b| <= tol (1 + |b|).
 static bool near(double a, double b, double tol = 1e-9) { return std::abs(a - b) <= tol * (1 + std::abs(b)); }
 
+/// @brief Builds the complete graph on n nodes labelled "0".."n-1", every edge of weight 1.
+/// @param n Number of nodes.
+/// @return The graph.
 static Graph complete(int n) {
     Graph g;
     for (int i = 0; i < n; ++i)
@@ -17,6 +26,10 @@ static Graph complete(int n) {
     return g;
 }
 
+/// @brief Runs the self-checks, then the smoke test when a CSV is given.
+/// @param argc Argument count.
+/// @param argv argv[1], if present, is the CSV to smoke-test.
+/// @return 0 when every check passes (a failed check aborts).
 int main(int argc, char** argv) {
     // planarity
     assert(is_planar(complete(4)));

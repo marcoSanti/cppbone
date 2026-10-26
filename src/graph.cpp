@@ -1,3 +1,6 @@
+/// @file
+/// @brief Graph implementation: storage, parallel copy, CSV input and output.
+
 #include "cppbone/graph.hpp"
 
 #include <algorithm>
@@ -19,7 +22,7 @@ std::uint64_t Graph::key(int u, int v) {
     return (std::uint64_t(std::uint32_t(u)) << 32) | std::uint32_t(v);
 }
 
-// Below this many elements the threads cost more than they save.
+/// @brief Element count below which copying or freeing a graph stays single-threaded (threads would cost more).
 static constexpr int PARALLEL_MIN = 1 << 16;
 
 Graph::Graph(const Graph& other) { *this = other; }
@@ -189,7 +192,9 @@ Graph Graph::subgraph(const std::vector<bool>& keep) const {
     return g;
 }
 
-// A line split on every comma, like the getline loop pandas-free code used: "a," gives {"a", ""}, "" gives {}.
+/// @brief Splits a CSV line on every comma; quotes are not interpreted.
+/// @param line Line without its terminator.
+/// @return The fields: "a," gives {"a", ""} and an empty line gives no fields.
 static std::vector<std::string_view> split(std::string_view line) {
     std::vector<std::string_view> out;
     if (line.empty()) return out;
@@ -202,6 +207,10 @@ static std::vector<std::string_view> split(std::string_view line) {
     return out;
 }
 
+/// @brief Converts a CSV field to an attribute value.
+/// @param s Field text.
+/// @return NaN for an empty field, 1 / 0 for "True" / "False" (either case of the first letter), else the number.
+/// @throws std::invalid_argument if the field is not numeric.
 static double parse_value(const std::string& s) {
     if (s.empty()) return NaN;
     if (s == "True" || s == "true") return 1.0;
@@ -212,7 +221,11 @@ static double parse_value(const std::string& s) {
     return v;
 }
 
-// The whole file, split into lines without their line terminators.
+/// @brief Reads a whole file and splits it into lines.
+/// @param path File to read.
+/// @param text Receives the file content; the returned views point into it.
+/// @return The lines without their "\n" or "\r\n" terminators.
+/// @throws std::runtime_error if the file cannot be opened.
 static std::vector<std::string_view> read_lines(const std::string& path, std::string& text) {
     std::ifstream in(path, std::ios::binary);
     if (!in) throw std::runtime_error("cannot open " + path);
@@ -233,13 +246,21 @@ static std::vector<std::string_view> read_lines(const std::string& path, std::st
     return lines;
 }
 
+/// @brief One parsed CSV line, waiting to be inserted into the graph.
 struct CsvRow {
-    std::string_view source, target;
-    Attrs attrs;
-    bool skip = false;  // blank line
+    std::string_view source;  ///< Source label (points into the file text).
+    std::string_view target;  ///< Target label (points into the file text).
+    Attrs attrs;              ///< Edge attributes parsed from the other columns.
+    bool skip = false;        ///< The line was blank.
 };
 
-// Parses lines[first..] in parallel with parse(line, row); the error of the earliest bad line is rethrown.
+/// @brief Parses CSV lines in parallel.
+/// @tparam Parse Callable (std::string_view line, CsvRow& row) that fills the row or throws.
+/// @param lines All lines of the file.
+/// @param first Index of the first data line (1 to skip a header).
+/// @param parse Parser for one non-blank line.
+/// @return One row per line from `first` on; blank lines are marked skip.
+/// @throws The exception of the earliest bad line, whatever order the threads ran in.
 template <typename Parse>
 static std::vector<CsvRow> parse_rows(const std::vector<std::string_view>& lines, size_t first, Parse parse) {
     int count = (int)(lines.size() - std::min(first, lines.size()));

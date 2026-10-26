@@ -1,3 +1,6 @@
+/// @file
+/// @brief High Salience Skeleton (structural/high_salience_skeleton.py).
+
 #include "detail.hpp"
 
 namespace cppbone {
