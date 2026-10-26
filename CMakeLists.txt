@@ -7,25 +7,54 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-file(GLOB_RECURSE NETBONE_SOURCES CONFIGURE_DEPENDS netbone/*.cpp)
-add_library(netbone STATIC ${NETBONE_SOURCES})
-target_include_directories(netbone PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+file(GLOB_RECURSE CPPBONE_SOURCES CONFIGURE_DEPENDS src/*.cpp)
+add_library(cppbone STATIC ${CPPBONE_SOURCES})
+# Public headers in include/cppbone/; src/ holds the sources and the private detail.hpp.
+target_include_directories(cppbone PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# OpenMP parallelises the per-node / per-edge / per-source loops; without it everything runs serially.
+option(CPPBONE_OPENMP "Build with OpenMP when the compiler supports it" ON)
+if(CPPBONE_OPENMP)
+  find_package(OpenMP COMPONENTS CXX)
+  if(OpenMP_CXX_FOUND)
+    target_link_libraries(cppbone PUBLIC OpenMP::OpenMP_CXX)
+  else()
+    message(STATUS "OpenMP not found: cppbone will run single-threaded")
+  endif()
+endif()
 
 # A wheel build (scikit-build-core sets SKBUILD) only needs the Python module.
 if(NOT SKBUILD)
-  add_executable(netbone_example examples/example.cpp)
-  target_link_libraries(netbone_example PRIVATE netbone)
+  # Command-line tool: argument parsing (Taywee/args) and progress bars (p-ranav/indicators), both header-only.
+  include(FetchContent)
+  set(ARGS_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+  set(ARGS_BUILD_UNITTESTS OFF CACHE BOOL "" FORCE)
+  set(ARGS_ENABLE_SECURITY_HARDENING OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(args
+    URL https://github.com/Taywee/args/archive/refs/tags/6.6.1.tar.gz
+    URL_HASH SHA256=61cdbb13f55493e6ffe07018c86b17f9ff68a5c1059eb15f4f079e04429915ff
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+  FetchContent_Declare(indicators
+    URL https://github.com/p-ranav/indicators/archive/refs/tags/v2.3.tar.gz
+    URL_HASH SHA256=70da7a693ff7a6a283850ab6d62acf628eea17d386488af8918576d0760aef7b
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+  FetchContent_MakeAvailable(args indicators)
+
+  add_executable(cppbone_cli apps/cppbone_cli.cpp)
+  target_link_libraries(cppbone_cli PRIVATE cppbone taywee::args indicators::indicators)
 
   enable_testing()
-  add_executable(test_netbone tests/test_netbone.cpp)
-  target_link_libraries(test_netbone PRIVATE netbone)
-  add_test(NAME test_netbone COMMAND test_netbone ${CMAKE_CURRENT_SOURCE_DIR}/data/data.csv)
+  add_executable(test_cppbone tests/test_cppbone.cpp)
+  target_link_libraries(test_cppbone PRIVATE cppbone)
+  add_test(NAME test_cppbone COMMAND test_cppbone ${CMAKE_CURRENT_SOURCE_DIR}/data/data.csv)
+  add_test(NAME test_cli COMMAND cppbone_cli ${CMAKE_CURRENT_SOURCE_DIR}/data/data.csv -q -m all -f fraction -v 0.1
+           -M all --ks all --consensus --progression 0.05,0.1,0.2 -o ${CMAKE_CURRENT_BINARY_DIR}/cli_out)
 endif()
 
-# Python module `netbone_cpp`, off by default: cmake -DNETBONE_PYTHON=ON [-DPython_EXECUTABLE=...]
-option(NETBONE_PYTHON "Build the netbone_cpp Python module" OFF)
-if(NETBONE_PYTHON)
-  set_target_properties(netbone PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# Python module `cppbone`, off by default: cmake -DCPPBONE_PYTHON=ON [-DPython_EXECUTABLE=...]
+option(CPPBONE_PYTHON "Build the cppbone Python module" OFF)
+if(CPPBONE_PYTHON)
+  set_target_properties(cppbone PROPERTIES POSITION_INDEPENDENT_CODE ON)
   set(PYBIND11_FINDPYTHON ON)
   # Wheel builds get pybind11 from build-system.requires; a plain CMake build downloads it.
   find_package(pybind11 3 CONFIG QUIET)
@@ -37,12 +66,14 @@ if(NETBONE_PYTHON)
       DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(pybind11)
   endif()
-  pybind11_add_module(netbone_cpp python/netbone_py.cpp)
-  target_link_libraries(netbone_cpp PRIVATE netbone)
-  install(TARGETS netbone_cpp LIBRARY DESTINATION .)
+  # The target needs its own name (cppbone is the library); the module file is still cppbone.<ext>.
+  pybind11_add_module(cppbone_python python/cppbone_py.cpp)
+  set_target_properties(cppbone_python PROPERTIES OUTPUT_NAME cppbone)
+  target_link_libraries(cppbone_python PRIVATE cppbone)
+  install(TARGETS cppbone_python LIBRARY DESTINATION .)
   if(NOT SKBUILD)
     add_test(NAME test_python COMMAND ${Python_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_python.py
              ${CMAKE_CURRENT_SOURCE_DIR}/data/data.csv)
-    set_tests_properties(test_python PROPERTIES ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:netbone_cpp>")
+    set_tests_properties(test_python PROPERTIES ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:cppbone_python>")
   endif()
 endif()

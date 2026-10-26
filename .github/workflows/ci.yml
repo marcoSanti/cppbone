@@ -36,7 +36,7 @@ jobs:
           pip install -r benchmarks/requirements.txt
           pip install --no-deps netbone==0.2.3
       - name: Configure
-        run: cmake -S . -B build-py -DNETBONE_PYTHON=ON -DPython_EXECUTABLE="$(which python)"
+        run: cmake -S . -B build-py -DCPPBONE_PYTHON=ON -DPython_EXECUTABLE="$(which python)"
       - name: Build
         run: cmake --build build-py -j
       - name: Test (C++ and Python module)

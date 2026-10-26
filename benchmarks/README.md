@@ -27,7 +27,7 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -r benchmarks/requirements.txt
 pip install --no-deps netbone==0.2.3
 
-cmake -S . -B build-py -DNETBONE_PYTHON=ON -DPython_EXECUTABLE=$(which python)
+cmake -S . -B build-py -DCPPBONE_PYTHON=ON -DPython_EXECUTABLE=$(which python)
 cmake --build build-py -j
 
 PYTHONPATH=build-py python benchmarks/compare_python.py               # all methods on data/data.csv

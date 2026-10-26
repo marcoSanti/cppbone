@@ -70,5 +70,5 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-pybind11 (BSD-3-Clause) is downloaded at build time only when NETBONE_PYTHON=ON
+pybind11 (BSD-3-Clause) is downloaded at build time only when CPPBONE_PYTHON=ON
 and is not distributed with this repository.

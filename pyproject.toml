@@ -5,7 +5,7 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "cppbone"
 dynamic = ["version"]  # read from project() in CMakeLists.txt
-description = "Fast C++ port of NetBone: backbone extraction from simple weighted networks"
+description = "Fast C++ backbone extraction from simple weighted networks"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -24,7 +24,7 @@ interop = ["networkx", "pandas"]  # converting to and from networkx graphs / pan
 
 [tool.scikit-build]
 minimum-version = "0.11"
-cmake.define.NETBONE_PYTHON = "ON"
+cmake.define.CPPBONE_PYTHON = "ON"
 sdist.exclude = [".github", "benchmarks", "build*"]
 
 [tool.scikit-build.metadata.version]

@@ -1,4 +1,4 @@
-"""Cross-check the original netbone Python package (pip install netbone) against netbone_cpp and time both.
+"""Cross-check the original netbone Python package (pip install netbone) against cppbone and time both.
 
 usage: python benchmarks/compare_python.py [--csv FILE] [--check] [method ...]
 --check exits non-zero when a method disagrees with Python beyond its tolerance (used by CI).
@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 import netbone as py
-import netbone_cpp as cpp
+import cppbone as cpp
 
 if version("netbone") != "0.2.3":
     print(f"warning: netbone {version('netbone')} installed; the published results use 0.2.3", file=sys.stderr)
