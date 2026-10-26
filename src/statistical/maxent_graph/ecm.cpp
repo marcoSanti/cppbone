@@ -23,9 +23,10 @@ namespace {
 /// @brief Machine epsilon, the margin that keeps the initial guess inside the parameter bounds.
 constexpr double EPS = std::numeric_limits<double>::epsilon();
 
-}  // namespace
+} // namespace
 
-/// @brief LAPACK dposv (Fortran interface): solves A X = B for a symmetric positive definite A by Cholesky.
+/// @brief LAPACK dposv (Fortran interface): solves A X = B for a symmetric positive definite A by
+/// Cholesky.
 /// @param uplo 'U' or 'L': which triangle of A (column-major) is read.
 /// @param n Order of A.
 /// @param nrhs Number of right-hand sides.
@@ -34,8 +35,8 @@ constexpr double EPS = std::numeric_limits<double>::epsilon();
 /// @param b Right-hand sides, overwritten by the solution when info is 0.
 /// @param ldb Leading dimension of b.
 /// @param info 0 on success, > 0 when A is not positive definite.
-extern "C" void dposv_(const char *uplo, const int *n, const int *nrhs, double *a, const int *lda, double *b,
-                       const int *ldb, int *info);
+extern "C" void dposv_(const char *uplo, const int *n, const int *nrhs, double *a, const int *lda,
+                       double *b, const int *ldb, int *info);
 
 namespace {
 
@@ -46,9 +47,9 @@ namespace {
 /// @return false if H is not positive definite.
 bool cholesky_solve(std::vector<double> H, std::vector<double> &r, int n) {
     // H is symmetric, so row-major and column-major storage are the same matrix.
-    const char uplo = 'U';
-    const int nrhs  = 1;
-    int info        = 0;
+    constexpr char uplo = 'U';
+    constexpr int nrhs  = 1;
+    int info            = 0;
     dposv_(&uplo, &n, &nrhs, H.data(), &n, r.data(), &n, &info);
     return info == 0;
 }
@@ -89,12 +90,13 @@ struct ECM {
     /// @param j Second node.
     /// @return The pair's quantities.
     [[nodiscard]] Pair pair(const std::vector<double> &v, int i, int j) const {
-        double yi = sigmoid(v[n + i]), yj = sigmoid(v[n + j]);
-        double yy       = yi * yj;
-        double one_m_yy = (1 - yi) + yi * (1 - yj); // 1 - yi yj without cancellation
-        double xxyy     = std::exp(v[i] + v[j]) * yy;
-        double denom    = one_m_yy + xxyy;
-        double p        = xxyy / denom;
+        const double yi       = sigmoid(v[n + i]);
+        const double yj       = sigmoid(v[n + j]);
+        const double yy       = yi * yj;
+        const double one_m_yy = (1 - yi) + yi * (1 - yj); // 1 - yi yj without cancellation
+        const double xxyy     = std::exp(v[i] + v[j]) * yy;
+        const double denom    = one_m_yy + xxyy;
+        const double p        = xxyy / denom;
         return {p, p / one_m_yy, one_m_yy, yy, xxyy / one_m_yy};
     }
 
@@ -103,16 +105,16 @@ struct ECM {
     /// @return x_i = k_i / sqrt(edges) and uniformly random y_i, as a parameter vector.
     std::vector<double> get_initial_guess(std::mt19937 &rng) const {
         double num_edges = 0;
-        for (double ki : k) {
+        for (const double ki : k) {
             num_edges += ki;
         }
         num_edges /= 2;
         std::uniform_real_distribution<double> unif(0, 1);
         std::vector<double> v(2 * n);
         for (int i = 0; i < n; ++i) {
-            v[i]     = std::log(std::max(EPS, k[i] / std::sqrt(num_edges)));
-            double y = std::clamp(unif(rng), EPS, 1 - EPS);
-            v[n + i] = -std::log(1 / y - 1);
+            v[i]           = std::log(std::max(EPS, k[i] / std::sqrt(num_edges)));
+            const double y = std::clamp(unif(rng), EPS, 1 - EPS);
+            v[n + i]       = -std::log(1 / y - 1);
         }
         return v;
     }
@@ -146,23 +148,23 @@ struct ECM {
                 expected[n + r] += q.sij;
                 // covariances of (edge present, edge weight) w.r.t. the natural parameters (a, log
                 // y)
-                double var_a = q.p * (1 - q.p);
-                double cov   = q.sij * (1 - q.p);
-                double var_w = q.p * (1 + q.yy) / (q.one_m_yy * q.one_m_yy) - q.sij * q.sij;
-                for (int col : {r, c}) {
-                    H[size_t(r) * m + col] += var_a;
-                    H[size_t(r) * m + n + col] += cov * jac[col];
-                    H[size_t(n + r) * m + col] += cov * jac[r];
-                    H[size_t(n + r) * m + n + col] += var_w * jac[r] * jac[col];
+                const double var_a = q.p * (1 - q.p);
+                const double cov   = q.sij * (1 - q.p);
+                const double var_w = q.p * (1 + q.yy) / (q.one_m_yy * q.one_m_yy) - q.sij * q.sij;
+                for (const int col : {r, c}) {
+                    H[static_cast<size_t>(r) * m + col] += var_a;
+                    H[static_cast<size_t>(r) * m + n + col] += cov * jac[col];
+                    H[static_cast<size_t>(n + r) * m + col] += cov * jac[r];
+                    H[static_cast<size_t>(n + r) * m + n + col] += var_w * jac[r] * jac[col];
                 }
             }
         }
         grad.resize(m);
         for (int i = 0; i < n; ++i) {
-            double g_logy = expected[n + i] - s[i];
-            grad[i]       = expected[i] - k[i];
-            grad[n + i]   = jac[i] * g_logy;
-            H[size_t(n + i) * m + n + i] -=
+            const double g_logy = expected[n + i] - s[i];
+            grad[i]             = expected[i] - k[i];
+            grad[n + i]         = jac[i] * g_logy;
+            H[static_cast<size_t>(n + i) * m + n + i] -=
                 g_logy * (1 - jac[i]) * jac[i]; // d2 log y / d b2 = -y (1 - y)
         }
     }
@@ -185,11 +187,12 @@ struct ECM {
 #pragma omp parallel for schedule(dynamic, 16)
         for (int i = 0; i < n; ++i) {
             for (int j = 0; j < i; ++j) {
-                double r0 = pair(v, i, j).r, r1 = pair(w, i, j).r;
+                const double r0 = pair(v, i, j).r;
+                const double r1 = pair(w, i, j).r;
                 rows[i] += std::log1p((r1 - r0) / (1 + r0));
             }
         }
-        for (double x : rows) {
+        for (const double x : rows) {
             d += x;
         }
         return d;
@@ -217,12 +220,12 @@ struct ECM {
     /// is printed for
     ///         smaller errors).
     [[nodiscard]] std::vector<double> solve(std::vector<double> v) const {
-        int m = 2 * n;
+        const int m = 2 * n;
         std::vector<double> expected, g, H;
         derivatives(v, expected, g, H);
         double scale = 0;
         for (int i = 0; i < m; ++i) {
-            scale = std::max(scale, std::abs(H[size_t(i) * m + i]));
+            scale = std::max(scale, std::abs(H[static_cast<size_t>(i) * m + i]));
         }
         double lambda = 1e-6 * scale;
         bool success  = false;
@@ -240,7 +243,7 @@ struct ECM {
             while (lambda < 1e30 && !stepped) {
                 std::vector<double> Hr = H, d = g;
                 for (int i = 0; i < m; ++i) {
-                    Hr[size_t(i) * m + i] += lambda;
+                    Hr[static_cast<size_t>(i) * m + i] += lambda;
                 }
                 if (!cholesky_solve(Hr, d, m)) {
                     lambda = std::max(lambda * 10, 1e-12);
@@ -250,8 +253,7 @@ struct ECM {
                 for (int i = 0; i < m; ++i) {
                     w[i] = v[i] - d[i];
                 }
-                double df = delta_nll(v, w);
-                if (std::isfinite(df) && df < 0) {
+                if (const double df = delta_nll(v, w); std::isfinite(df) && df < 0) {
                     v.swap(w);
                     lambda  = std::max(lambda / 3, 1e-12);
                     stepped = true;
@@ -278,9 +280,9 @@ struct ECM {
 
 } // namespace
 
-Backbone ecm(const Graph &data, std::uint32_t seed) {
-    Graph g = data;
-    auto w  = g.edge_values("weight");
+Backbone ecm(const Graph &data, const std::uint32_t seed) {
+    Graph g      = data;
+    const auto w = g.edge_values("weight");
     ECM model;
     model.n = g.number_of_nodes();
     model.k.assign(model.n, 0);

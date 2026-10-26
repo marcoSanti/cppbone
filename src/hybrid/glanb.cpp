@@ -55,7 +55,7 @@ struct DagRecorder : boost::default_dijkstra_visitor {
     /// @brief A strictly shorter path to the target: its source becomes the only predecessor.
     /// @param e Edge.
     /// @param b Graph.
-    [[maybe_unused]] void edge_relaxed(detail::BoostGraph::edge_descriptor e,
+    [[maybe_unused]] void edge_relaxed(const detail::BoostGraph::edge_descriptor &e,
                                        const detail::BoostGraph &b) const {
         (*pred)[boost::target(e, b)].assign(1, static_cast<int>(boost::source(e, b)));
     }
@@ -99,7 +99,7 @@ static std::vector<double> paths_from(const detail::BoostGraph &bg, int source,
     const auto edge_id = boost::get(boost::edge_index, bg);
     const auto length  = boost::make_function_property_map<Edge>(
         [&](const Edge &e) { return distance[edge_id[e]]; });
-    auto less = [](double a, double b) { return cmp_epsilon(a, b) < 0; };
+    auto less = [](const double a, const double b) { return cmp_epsilon(a, b) < 0; };
     boost::dijkstra_shortest_paths(
         bg, source,
         boost::weight_map(length)
